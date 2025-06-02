@@ -19,21 +19,29 @@ public class DefaultMainPage implements ScoreboardPage {
         Objective objective = scoreboard.registerNewObjective(objectiveId, "dummy", "§6§lDeWalt");
         objective.setDisplaySlot(DisplaySlot.SIDEBAR);
 
-        // Línea 3
-        objective.getScore("§r").setScore(3); // Línea vacía 1
-        objective.getScore("§r§r").setScore(2); // Línea vacía 2 (única visualmente igual)
+        int line = 7;
 
+        // Línea vacía
+        objective.getScore("§f").setScore(line--);
 
-        // Línea 2 - Top
-        objective.getScore("§7Tu posición en el top: §e0").setScore(2);
+        // Línea: Tu posición
+        objective.getScore("§7Tu posición en el top:").setScore(line--);
+        objective.getScore("§e       0").setScore(line--);
 
-        // Línea 1 - Desbloqueo
+        // Línea vacía
+        objective.getScore("§f§f").setScore(line--);
+
+        // Desbloqueo en múltiples líneas
         if (unlockedAll) {
-            objective.getScore("§aTienes todos los juegos desbloqueados").setScore(1);
+            objective.getScore("§aTienes todos los juegos").setScore(line--);
+            objective.getScore("§adesbloqueados").setScore(line--);
         } else {
-            objective.getScore("§cVe a la zona de aprendizaje para desbloquear los juegos").setScore(1);
+            objective.getScore("§cVe a la zona de").setScore(line--);
+            objective.getScore("§caprendizaje para").setScore(line--);
+            objective.getScore("§cdesbloquear los juegos").setScore(line--);
         }
 
         player.setScoreboard(scoreboard);
     }
+
 }
