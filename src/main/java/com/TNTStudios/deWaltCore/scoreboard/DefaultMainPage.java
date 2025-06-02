@@ -15,11 +15,14 @@ public class DefaultMainPage implements ScoreboardPage {
     @Override
     public void applyTo(Player player) {
         Scoreboard scoreboard = Bukkit.getScoreboardManager().getNewScoreboard();
-        Objective objective = scoreboard.registerNewObjective("dewalt", "dummy", "§6§lDeWalt");
+        String objectiveId = "dewalt_" + player.getUniqueId().toString().substring(0, 8);
+        Objective objective = scoreboard.registerNewObjective(objectiveId, "dummy", "§6§lDeWalt");
         objective.setDisplaySlot(DisplaySlot.SIDEBAR);
 
         // Línea 3
-        objective.getScore("§r").setScore(3);
+        objective.getScore("§r").setScore(3); // Línea vacía 1
+        objective.getScore("§r§r").setScore(2); // Línea vacía 2 (única visualmente igual)
+
 
         // Línea 2 - Top
         objective.getScore("§7Tu posición en el top: §e0").setScore(2);
