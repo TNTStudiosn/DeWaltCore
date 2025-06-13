@@ -19,12 +19,12 @@ public class RegistrationManager {
     }
 
     public static boolean isRegistered(Player player) {
-        File file = new File(REGISTRATION_FOLDER, player.getUniqueId().toString() + ".yml");
+        File file = new File(REGISTRATION_FOLDER, player.getName() + ".yml");
         return file.exists();
     }
 
     public static void register(Player player, String name, String email, int age) {
-        File file = new File(REGISTRATION_FOLDER, player.getUniqueId().toString() + ".yml");
+        File file = new File(REGISTRATION_FOLDER, player.getName() + ".yml");
         YamlConfiguration config = new YamlConfiguration();
 
         config.set("name", name);
@@ -39,7 +39,7 @@ public class RegistrationManager {
     }
 
     public static YamlConfiguration getRegistration(Player player) {
-        File file = new File(REGISTRATION_FOLDER, player.getUniqueId().toString() + ".yml");
+        File file = new File(REGISTRATION_FOLDER, player.getName() + ".yml");
         return YamlConfiguration.loadConfiguration(file);
     }
 }
