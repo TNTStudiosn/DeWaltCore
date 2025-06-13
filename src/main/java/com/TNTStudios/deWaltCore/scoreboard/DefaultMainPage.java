@@ -4,11 +4,17 @@ import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.*;
 
+import java.util.List;
+
 public class DefaultMainPage implements ScoreboardPage {
 
     private final boolean unlockedAll;
+    private final int topPosition;
+    private final int totalPoints;
 
-    public DefaultMainPage(boolean unlockedAll) {
+    public DefaultMainPage(int topPosition, int totalPoints, boolean unlockedAll) {
+        this.topPosition = topPosition;
+        this.totalPoints = totalPoints;
         this.unlockedAll = unlockedAll;
     }
 
@@ -16,32 +22,20 @@ public class DefaultMainPage implements ScoreboardPage {
     public void applyTo(Player player) {
         Scoreboard scoreboard = Bukkit.getScoreboardManager().getNewScoreboard();
         String objectiveId = "dewalt_" + player.getUniqueId().toString().substring(0, 8);
-        Objective objective = scoreboard.registerNewObjective(objectiveId, "dummy", "§6§lDeWalt");
+        Objective objective = scoreboard.registerNewObjective(objectiveId, "dummy", ScoreboardStyle.TITLE);
         objective.setDisplaySlot(DisplaySlot.SIDEBAR);
 
-        int line = 7;
+        List<String> lines = ScoreboardStyle.buildDefaultPageLines(topPosition, totalPoints, unlockedAll);
+        int score = lines.size();
 
-        // Línea vacía
-        objective.getScore("§f").setScore(line--);
-
-        // Línea: Tu posición
-        objective.getScore("§7Tu posición en el top:").setScore(line--);
-        objective.getScore("§e       0").setScore(line--);
-
-        // Línea vacía
-        objective.getScore("§f§f").setScore(line--);
-
-        // Desbloqueo en múltiples líneas
-        if (unlockedAll) {
-            objective.getScore("§aTienes todos los juegos").setScore(line--);
-            objective.getScore("§adesbloqueados").setScore(line--);
-        } else {
-            objective.getScore("§cVe a la zona de").setScore(line--);
-            objective.getScore("§caprendizaje para").setScore(line--);
-            objective.getScore("§cdesbloquear los juegos").setScore(line--);
+        for (String line : lines) {
+            while (objective.getScoreboard().getEntries().contains(line)) {
+                line += "§r";
+            }
+            objective.getScore(line).setScore(score--);
         }
 
         player.setScoreboard(scoreboard);
     }
-
 }
+

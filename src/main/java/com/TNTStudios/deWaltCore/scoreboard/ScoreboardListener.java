@@ -13,11 +13,13 @@ public class ScoreboardListener implements Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
-        // TODO: reemplazar esta lógica por algo real
         boolean hasUnlockedAll = checkIfUnlockedAll(player);
+        int topPosition = 0; // ← reemplazar con ranking real más adelante
+        int totalPoints = 0; // ← reemplazar con puntos reales
 
-        DeWaltScoreboardManager.showDefaultPage(player, hasUnlockedAll);
+        DeWaltScoreboardManager.showDefaultPage(player, topPosition, totalPoints, hasUnlockedAll);
     }
+
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {

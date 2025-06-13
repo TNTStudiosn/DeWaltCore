@@ -18,8 +18,8 @@ public class DeWaltScoreboardManager {
     }
 
     // Muestra la página por defecto si no está en un minijuego
-    public static void showDefaultPage(Player player, boolean unlockedAll) {
-        setPage(player, new DefaultMainPage(unlockedAll));
+    public static void showDefaultPage(Player player, int topPosition, int totalPoints, boolean unlockedAll) {
+        setPage(player, new DefaultMainPage(topPosition, totalPoints, unlockedAll));
     }
 
     // Refresca la página actual (reaplica la lógica)
@@ -37,12 +37,12 @@ public class DeWaltScoreboardManager {
     }
 
     // Solo actualiza si el jugador aún está viendo la página principal
-    public static void updateDefaultPage(Player player, boolean unlockedAll) {
+    public static void updateDefaultPage(Player player, int topPosition, int totalPoints, boolean unlockedAll) {
         UUID uuid = player.getUniqueId();
         ScoreboardPage current = activePages.get(uuid);
 
         if (current instanceof DefaultMainPage) {
-            showDefaultPage(player, unlockedAll);
+            showDefaultPage(player, topPosition, totalPoints, unlockedAll);
         }
     }
 }
