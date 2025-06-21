@@ -12,6 +12,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.util.List; // Importo la clase List que voy a necesitar.
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -112,9 +113,12 @@ public class MazeManager {
         int totalPoints = pointsManager.getTotalPoints(player);
         int topPosition = pointsManager.getPlayerRank(player);
 
-        // Nota: La clase DefaultMainPage ya no existe bajo la nueva estructura, el manager se encarga de todo.
-        // En su lugar, simplemente llamamos al método que genera y actualiza el scoreboard.
-        DeWaltScoreboardManager.showDefaultPage(player, topPosition, totalPoints, false);
+        // --- MI CORRECCIÓN ---
+        // Obtengo la lista de los 3 mejores jugadores desde mi PointsManager.
+        List<PointsManager.PlayerScore> topPlayers = pointsManager.getTopPlayers(3);
+
+        // Ahora sí llamo al método con todos los argumentos requeridos, incluyendo la lista del top.
+        DeWaltScoreboardManager.showDefaultPage(player, topPosition, totalPoints, false, topPlayers);
     }
 
     public void cancelMaze(Player player) {
