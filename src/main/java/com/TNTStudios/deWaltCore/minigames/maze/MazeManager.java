@@ -1,4 +1,3 @@
-// FILE: src/main/java/com/TNTStudios/deWaltCore/minigames/maze/MazeManager.java
 package com.TNTStudios.deWaltCore.minigames.maze;
 
 import com.TNTStudios.deWaltCore.DeWaltCore;
@@ -108,16 +107,14 @@ public class MazeManager {
                     String.format(ChatColor.YELLOW + "Tu tiempo fue de %s", formatTime(finalTime)), 10, 80, 20);
         }
 
-        // Es importante actualizar el scoreboard DESPUÉS de registrar los puntos.
-        // Lo hago con un pequeño retraso para asegurar que la info del ranking se haya actualizado.
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                int totalPoints = pointsManager.getTotalPoints(player);
-                int topPosition = pointsManager.getPlayerRank(player);
-                DeWaltScoreboardManager.updateDefaultPage(player, topPosition, totalPoints, false);
-            }
-        }.runTaskLater(plugin, 5L); // 5 ticks de retraso.
+        // Ya no necesito el retraso, porque los datos en PointsManager se actualizan en memoria al instante.
+        // El scoreboard puede leer la información correcta de inmediato.
+        int totalPoints = pointsManager.getTotalPoints(player);
+        int topPosition = pointsManager.getPlayerRank(player);
+
+        // Nota: La clase DefaultMainPage ya no existe bajo la nueva estructura, el manager se encarga de todo.
+        // En su lugar, simplemente llamamos al método que genera y actualiza el scoreboard.
+        DeWaltScoreboardManager.showDefaultPage(player, topPosition, totalPoints, false);
     }
 
     public void cancelMaze(Player player) {

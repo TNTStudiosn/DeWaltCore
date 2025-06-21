@@ -1,7 +1,8 @@
+// FILE: src/main/java/com/TNTStudios/deWaltCore/scoreboard/ScoreboardListener.java
 package com.TNTStudios.deWaltCore.scoreboard;
 
 import com.TNTStudios.deWaltCore.DeWaltCore;
-import com.TNTStudios.deWaltCore.points.PointsManager; // Corrijo el paquete, era "points" no "stats"
+import com.TNTStudios.deWaltCore.points.PointsManager;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -13,26 +14,35 @@ public class ScoreboardListener implements Listener {
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        // Accedo a mi manager de puntos para obtener la información.
-        // Uso el método estático que creé en mi clase principal.
         PointsManager pointsManager = DeWaltCore.getPointsManager();
 
-        // Ahora obtengo los datos reales del jugador
+        // Le digo a mi PointsManager que cargue los datos de este jugador en el caché.
+        pointsManager.loadPlayerData(player);
+
+        // Ahora obtengo los datos cacheados. Esto es instantáneo.
         int totalPoints = pointsManager.getTotalPoints(player);
         int topPosition = pointsManager.getPlayerRank(player);
-        boolean hasUnlockedAll = checkIfUnlockedAll(player); // Esto sigue pendiente, pero está bien por ahora.
+        boolean hasUnlockedAll = checkIfUnlockedAll(player);
 
-        // Muestro el scoreboard con la información correcta y actualizada
+        // Muestro el scoreboard usando el nuevo método optimizado.
         DeWaltScoreboardManager.showDefaultPage(player, topPosition, totalPoints, hasUnlockedAll);
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        DeWaltScoreboardManager.clear(event.getPlayer());
+        Player player = event.getPlayer();
+        // Limpio el scoreboard del jugador que se va.
+        DeWaltScoreboardManager.clear(player);
+
+        // Le digo a mi PointsManager que puede liberar los datos de este jugador del caché.
+        PointsManager pointsManager = DeWaltCore.getPointsManager();
+        if (pointsManager != null) {
+            pointsManager.unloadPlayerData(player);
+        }
     }
 
     private boolean checkIfUnlockedAll(Player player) {
-        // Aquí va tu lógica real para saber si el jugador desbloqueó todo
+        // Tu lógica para comprobar si desbloqueó todo va aquí.
         return false;
     }
 }

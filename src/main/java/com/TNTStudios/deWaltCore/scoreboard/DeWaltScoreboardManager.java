@@ -1,48 +1,81 @@
+// FILE: src/main/java/com/TNTStudios/deWaltCore/scoreboard/DeWaltScoreboardManager.java
 package com.TNTStudios.deWaltCore.scoreboard;
 
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
+import org.bukkit.scoreboard.DisplaySlot;
+import org.bukkit.scoreboard.Objective;
+import org.bukkit.scoreboard.Scoreboard;
+import org.bukkit.scoreboard.Team;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Mi gestor de Scoreboards.
+ * OPTIMIZADO: Ahora cacheo el scoreboard de cada jugador para evitar recrearlo
+ * constantemente, lo que elimina el parpadeo (flicker) y mejora el rendimiento.
+ */
 public class DeWaltScoreboardManager {
 
-    // Mapeo de cada jugador a su página de scoreboard actual
-    private static final Map<UUID, ScoreboardPage> activePages = new HashMap<>();
+    // Uso ConcurrentHashMap por si múltiples hilos acceden a él (aunque es poco probable aquí). Es una buena práctica.
+    private static final Map<UUID, Scoreboard> scoreboardCache = new ConcurrentHashMap<>();
+    private static final String OBJECTIVE_NAME = "dewalt_sb";
 
-    // Establece una página de scoreboard para un jugador
-    public static void setPage(Player player, ScoreboardPage page) {
-        activePages.put(player.getUniqueId(), page);
-        page.applyTo(player);
-    }
+    // Actualiza el scoreboard de un jugador con las líneas que le tocan.
+    // Si no tiene uno, se lo crea.
+    public static void updateScoreboard(Player player, List<String> lines) {
+        // Obtengo el scoreboard del caché o creo uno nuevo si no existe.
+        Scoreboard scoreboard = scoreboardCache.computeIfAbsent(player.getUniqueId(), uuid -> {
+            Scoreboard newBoard = Bukkit.getScoreboardManager().getNewScoreboard();
+            Objective objective = newBoard.registerNewObjective(OBJECTIVE_NAME, "dummy", ScoreboardStyle.TITLE);
+            objective.setDisplaySlot(DisplaySlot.SIDEBAR);
+            return newBoard;
+        });
 
-    // Muestra la página por defecto si no está en un minijuego
-    public static void showDefaultPage(Player player, int topPosition, int totalPoints, boolean unlockedAll) {
-        setPage(player, new DefaultMainPage(topPosition, totalPoints, unlockedAll));
-    }
+        Objective objective = scoreboard.getObjective(OBJECTIVE_NAME);
 
-    // Refresca la página actual (reaplica la lógica)
-    public static void refresh(Player player) {
-        ScoreboardPage page = activePages.get(player.getUniqueId());
-        if (page != null) page.applyTo(player);
-    }
+        // Si por alguna razón el objetivo no existiera (ej. error de otro plugin), lo recreo.
+        if (objective == null) {
+            objective = scoreboard.registerNewObjective(OBJECTIVE_NAME, "dummy", ScoreboardStyle.TITLE);
+            objective.setDisplaySlot(DisplaySlot.SIDEBAR);
+        }
 
-    // Elimina el scoreboard y limpia su registro
-    public static void clear(Player player) {
-        activePages.remove(player.getUniqueId());
-        if (player.isOnline()) {
-            player.setScoreboard(player.getServer().getScoreboardManager().getNewScoreboard());
+        // --- LÓGICA DE ACTUALIZACIÓN EFICIENTE ---
+        // Primero, borro todas las líneas viejas para evitar "fantasmas".
+        for (String entry : scoreboard.getEntries()) {
+            scoreboard.resetScores(entry);
+        }
+
+        // Luego, añado las nuevas líneas.
+        int score = lines.size();
+        for (String line : lines) {
+            // No necesito la lógica de "§r" porque cada scoreboard es único por jugador
+            // y las líneas se resetean antes de poner las nuevas.
+            objective.getScore(line).setScore(score--);
+        }
+
+        // Solo le asigno el scoreboard si no lo tiene ya, para evitar envíos de paquetes innecesarios.
+        if (player.getScoreboard() != scoreboard) {
+            player.setScoreboard(scoreboard);
         }
     }
 
-    // Solo actualiza si el jugador aún está viendo la página principal
-    public static void updateDefaultPage(Player player, int topPosition, int totalPoints, boolean unlockedAll) {
-        UUID uuid = player.getUniqueId();
-        ScoreboardPage current = activePages.get(uuid);
+    // Muestra la página por defecto usando el nuevo sistema de actualización.
+    public static void showDefaultPage(Player player, int topPosition, int totalPoints, boolean unlockedAll) {
+        List<String> lines = ScoreboardStyle.buildDefaultPageLines(topPosition, totalPoints, unlockedAll);
+        updateScoreboard(player, lines);
+    }
 
-        if (current instanceof DefaultMainPage) {
-            showDefaultPage(player, topPosition, totalPoints, unlockedAll);
+    // Elimina el scoreboard del jugador y lo limpia de nuestro caché.
+    public static void clear(Player player) {
+        scoreboardCache.remove(player.getUniqueId());
+        if (player.isOnline()) {
+            // Le devolvemos el scoreboard principal del servidor.
+            player.setScoreboard(Bukkit.getScoreboardManager().getMainScoreboard());
         }
     }
 }
