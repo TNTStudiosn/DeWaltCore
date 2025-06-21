@@ -1,6 +1,6 @@
 package com.TNTStudios.deWaltCore.scoreboard;
 
-import org.bukkit.Bukkit;
+import com.TNTStudios.deWaltCore.points.PointsManager;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -8,14 +8,19 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 public class ScoreboardListener implements Listener {
+    private final PointsManager pointsManager;
+
+    public ScoreboardListener(PointsManager pointsManager) {
+        this.pointsManager = pointsManager;
+    }
 
     @EventHandler
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
 
         boolean hasUnlockedAll = checkIfUnlockedAll(player);
-        int topPosition = 0; // ← reemplazar con ranking real más adelante
-        int totalPoints = 0; // ← reemplazar con puntos reales
+        int totalPoints = pointsManager.getPoints(player.getName());
+        int topPosition = pointsManager.getTopPosition(player.getName());
 
         DeWaltScoreboardManager.showDefaultPage(player, topPosition, totalPoints, hasUnlockedAll);
     }
