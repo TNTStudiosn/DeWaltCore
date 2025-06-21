@@ -4,3 +4,5 @@ main: com.TNTStudios.deWaltCore.DeWaltCore
 api-version: '1.21'
 authors: [ TNTStudios ]
 website: https://tntstudiosn.space/
+softdepend:
+  - DecentHolograms

@@ -12,7 +12,9 @@ public final class DeWaltCore extends JavaPlugin {
         getServer().getPluginManager().registerEvents(new ScoreboardListener(), this);
 
         getServer().getPluginManager().registerEvents(new ScoreboardListener(), this);
-        getServer().getPluginManager().registerEvents(new RegistrationListener(), this);
+
+        //register apagado
+        //getServer().getPluginManager().registerEvents(new RegistrationListener(), this);
     }
 
 
