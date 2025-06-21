@@ -16,6 +16,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * Mi gestor de datos y puntos para todos los minijuegos.
@@ -77,6 +78,11 @@ public class PointsManager {
      * Se llama cuando un jugador entra al servidor.
      */
     public void loadPlayerData(Player player) {
+        // --- MI MEJORA ---
+        // Al cargar, me aseguro de que el nombre del jugador esté actualizado en el leaderboard.
+        // Esto corrige nombres si un jugador cambia su nick.
+        updatePlayerNameInLeaderboard(player.getUniqueId(), player.getName());
+
         File playerFile = new File(playerDataFolder, player.getUniqueId().toString() + ".yml");
         FileConfiguration config = YamlConfiguration.loadConfiguration(playerFile);
         int totalPoints = config.getInt("total-points", 0);
@@ -117,18 +123,44 @@ public class PointsManager {
         plugin.getLogger().info("Leaderboard cargado con " + leaderboard.size() + " jugadores.");
     }
 
-    public void saveLeaderboard() {
+    // --- MI NUEVO MÉTODO SINCRÓNICO ---
+    /**
+     * Guarda el leaderboard en el hilo principal.
+     * Es crucial usar este método solo en onDisable para garantizar que los datos se guarden.
+     */
+    public void saveLeaderboardSync() {
+        FileConfiguration config = new YamlConfiguration();
+        // Hago una copia para evitar problemas si algo más intenta modificarlo
+        Map<UUID, PlayerScore> leaderboardCopy = new HashMap<>(this.leaderboard);
+
+        ConfigurationSection topSection = config.createSection("top");
+        for (PlayerScore score : leaderboardCopy.values()) {
+            String path = score.uuid().toString();
+            topSection.set(path + ".name", score.playerName());
+            topSection.set(path + ".points", score.points());
+        }
+
+        try {
+            config.save(leaderboardFile);
+        } catch (IOException e) {
+            plugin.getLogger().severe("¡ERROR CRÍTICO! No pude guardar el archivo del leaderboard en onDisable!");
+            e.printStackTrace();
+        }
+    }
+
+    // Renombro el método original para mayor claridad
+    public void saveLeaderboardAsync() {
         Map<UUID, PlayerScore> leaderboardCopy = new HashMap<>(this.leaderboard);
 
         new BukkitRunnable() {
             @Override
             public void run() {
                 FileConfiguration config = new YamlConfiguration();
-                config.set("top", null);
+                ConfigurationSection topSection = config.createSection("top");
                 for (PlayerScore score : leaderboardCopy.values()) {
-                    String path = "top." + score.uuid().toString();
-                    config.set(path + ".name", score.playerName());
-                    config.set(path + ".points", score.points());
+                    String path = score.uuid().toString();
+                    topSection.set(path + ".name", score.playerName());
+                    topSection.set(path + ".points", score.points());
                 }
 
                 try {
@@ -143,15 +175,13 @@ public class PointsManager {
 
     public int recordCompletion(Player player, String minigameId, int newTime) {
         UUID uuid = player.getUniqueId();
-        // Ahora obtengo los datos desde mi caché. ¡Mucho más rápido!
         PlayerData data = playerDataCache.get(uuid);
         if (data == null) {
             plugin.getLogger().warning("Intenté registrar puntos para " + player.getName() + " pero sus datos no estaban cacheados.");
-            return 0; // No debería pasar si se carga en el PlayerJoinEvent.
+            return 0;
         }
 
         FileConfiguration config = data.config;
-
         int bestTime = config.getInt("minigames." + minigameId + ".best-time", -1);
         int improvementCount = config.getInt("minigames." + minigameId + ".improvement-count", 0);
         int pointsAwarded = 0;
@@ -171,11 +201,11 @@ public class PointsManager {
             config.set("minigames." + minigameId + ".best-time", newTime);
             config.set("minigames." + minigameId + ".improvement-count", improvementCount + 1);
         } else {
-            return 0; // No mejoró, no hay puntos.
+            return 0;
         }
 
         int totalPoints = data.totalPoints + pointsAwarded;
-        data.totalPoints = totalPoints; // Actualizo el valor en el caché.
+        data.totalPoints = totalPoints;
         config.set("total-points", totalPoints);
         config.set("player-name", player.getName());
 
@@ -218,33 +248,49 @@ public class PointsManager {
         updateSortedLeaderboardCache();
     }
 
+    // --- MI NUEVO MÉTODO DE UTILIDAD ---
+    private void updatePlayerNameInLeaderboard(UUID uuid, String newPlayerName) {
+        PlayerScore currentScore = leaderboard.get(uuid);
+        // Si el jugador ya está en el leaderboard y su nombre ha cambiado, lo actualizo.
+        if (currentScore != null && !currentScore.playerName().equals(newPlayerName)) {
+            leaderboard.put(uuid, new PlayerScore(uuid, newPlayerName, currentScore.points()));
+            // No necesito reordenar aquí, porque los puntos no cambiaron.
+        }
+    }
+
     private void updateSortedLeaderboardCache() {
-        // Esta operación es rápida, pero para 200+ jugadores, la hago asíncrona para no afectar el hilo principal.
+        // En servidores con muchísimos jugadores (>10k en el leaderboard) esto podría tardar.
+        // Por ahora, con unos cientos o miles, hacerlo síncrono es casi instantáneo y más simple.
+        // Si llegara a ser un problema, podríamos moverlo a un hilo asíncrono.
         List<PlayerScore> sortedList = new ArrayList<>(leaderboard.values());
         Collections.sort(sortedList);
         this.sortedLeaderboardCache = sortedList;
     }
 
-    /**
-     * Obtiene el total de puntos de un jugador desde el caché en memoria.
-     * Cero lecturas de disco. ¡Súper rápido!
-     */
     public int getTotalPoints(Player player) {
         PlayerData data = playerDataCache.get(player.getUniqueId());
         return (data != null) ? data.totalPoints : 0;
     }
 
-    /**
-     * Obtiene la posición del jugador desde el caché del leaderboard en memoria.
-     */
     public int getPlayerRank(Player player) {
         UUID uuid = player.getUniqueId();
-        // La iteración es muy rápida, no requiere optimización adicional.
+        // La iteración es muy rápida sobre la lista cacheadada, no requiere optimización adicional.
         for (int i = 0; i < sortedLeaderboardCache.size(); i++) {
             if (sortedLeaderboardCache.get(i).uuid().equals(uuid)) {
                 return i + 1;
             }
         }
         return 0; // No clasificado
+    }
+
+    // --- MI NUEVO MÉTODO PARA EL SCOREBOARD ---
+    /**
+     * Devuelve una lista con los mejores jugadores.
+     * Es súper rápido porque lee desde la lista cacheada y ordenada.
+     * @param amount El número de jugadores a devolver.
+     * @return Una lista de PlayerScore.
+     */
+    public List<PlayerScore> getTopPlayers(int amount) {
+        return sortedLeaderboardCache.stream().limit(amount).collect(Collectors.toList());
     }
 }

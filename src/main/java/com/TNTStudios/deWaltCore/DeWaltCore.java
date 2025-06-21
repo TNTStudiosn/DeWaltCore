@@ -37,7 +37,7 @@ public final class DeWaltCore extends JavaPlugin {
             @Override
             public void run() {
                 if (pointsManager != null) {
-                    pointsManager.saveLeaderboard();
+                    pointsManager.saveLeaderboardAsync(); // Ahora llamo al método asíncrono explícitamente.
                     getLogger().info("El leaderboard ha sido guardado automáticamente en segundo plano.");
                 }
             }
@@ -49,9 +49,11 @@ public final class DeWaltCore extends JavaPlugin {
         // Guardo el leaderboard una última vez al apagar, de forma síncrona para asegurar que se complete.
         if (pointsManager != null) {
             getLogger().info("Guardando leaderboard final antes de apagar...");
-            // Aquí no uso el método asíncrono porque el servidor se está apagando.
-            // Necesitamos que esta operación se complete antes de que el proceso termine.
-            pointsManager.saveLeaderboard(); // Para ser 100% seguro, habría que crear un saveLeaderboardSync()
+            // --- MI CAMBIO ---
+            // Llamo al nuevo método síncrono. Esto es crucial para que el guardado
+            // se complete antes de que el servidor se apague por completo.
+            pointsManager.saveLeaderboardSync();
+            getLogger().info("Leaderboard guardado correctamente.");
         }
     }
 

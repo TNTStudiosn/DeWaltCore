@@ -9,6 +9,8 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
+import java.util.List;
+
 public class ScoreboardListener implements Listener {
 
     @EventHandler
@@ -24,8 +26,12 @@ public class ScoreboardListener implements Listener {
         int topPosition = pointsManager.getPlayerRank(player);
         boolean hasUnlockedAll = checkIfUnlockedAll(player);
 
+        // --- MI CAMBIO ---
+        // Obtengo los 3 mejores jugadores para mostrarlos.
+        List<PointsManager.PlayerScore> topPlayers = pointsManager.getTopPlayers(3);
+
         // Muestro el scoreboard usando el nuevo método optimizado.
-        DeWaltScoreboardManager.showDefaultPage(player, topPosition, totalPoints, hasUnlockedAll);
+        DeWaltScoreboardManager.showDefaultPage(player, topPosition, totalPoints, hasUnlockedAll, topPlayers);
     }
 
     @EventHandler
