@@ -8,6 +8,8 @@ import java.util.List;
 
 public class DefaultMainPage implements ScoreboardPage {
 
+
+
     private final boolean unlockedAll;
     private final int topPosition;
     private final int totalPoints;
