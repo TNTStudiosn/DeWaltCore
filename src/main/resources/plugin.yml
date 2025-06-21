@@ -6,3 +6,8 @@ authors: [ TNTStudios ]
 website: https://tntstudiosn.space/
 softdepend:
   - DecentHolograms
+commands:
+  empezar:
+    description: Inicia el timer del laberinto
+  detener:
+    description: Detiene el timer del laberinto
