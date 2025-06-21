@@ -8,7 +8,7 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Mi comando /taladro para iniciar el minijuego.
+ * Mi comando /taladro para unirse al minijuego.
  */
 public class DrillCommand implements CommandExecutor {
 
@@ -25,8 +25,8 @@ public class DrillCommand implements CommandExecutor {
             return true;
         }
 
-        // Simplemente le paso el control a mi manager.
-        drillManager.startMinigame(player);
+        // En lugar de iniciar el juego, ahora lo envío al lobby.
+        drillManager.addPlayerToLobby(player);
         return true;
     }
 }

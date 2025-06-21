@@ -1,4 +1,3 @@
-// FILE: src/main/java/com/TNTStudios/deWaltCore/points/PointsManager.java
 package com.TNTStudios.deWaltCore.points;
 
 import com.TNTStudios.deWaltCore.DeWaltCore;
@@ -257,6 +256,29 @@ public class PointsManager {
         return pointsAwarded;
     }
 
+    // --- MI NUEVO MÉTODO PARA AÑADIR PUNTOS DIRECTAMENTE ---
+    /**
+     * Añade una cantidad específica de puntos a un jugador.
+     * Ideal para recompensas directas como las del ranking del minijuego.
+     * @param player El jugador que recibe los puntos.
+     * @param pointsToAdd La cantidad de puntos a añadir.
+     * @param minigameId El identificador del juego o la fuente de los puntos.
+     * @param reason La razón por la que se otorgan los puntos.
+     */
+    public void addPoints(Player player, int pointsToAdd, String minigameId, String reason) {
+        UUID uuid = player.getUniqueId();
+        PlayerData data = playerDataCache.get(uuid);
+        if (data == null) {
+            plugin.getLogger().warning("Intenté añadir puntos para " + player.getName() + " pero sus datos no estaban cacheados.");
+            return;
+        }
+
+        // Aquí no hay lógica de "mejor puntuación", simplemente llamo al método que guarda los datos.
+        // Uso un valor de "score" de 0 porque no es relevante aquí.
+        updateAndSavePlayerData(player, data, minigameId, 0, pointsToAdd, reason, "Recompensa");
+    }
+
+
     /**
      * Método centralizado para actualizar y guardar los datos del jugador.
      */
@@ -271,8 +293,15 @@ public class PointsManager {
         data.config.set("player-name", player.getName());
 
         String timestamp = LocalDateTime.now(cdmxZoneId).format(dateTimeFormatter);
-        String logEntry = String.format("%s [CDMX] | Minijuego: %s | %s: %d | Puntos: +%d | Razón: %s",
-                timestamp, minigameId, scoreType, scoreValue, pointsAwarded, reason);
+        // Ajusto el log para que tenga sentido si no hay un "score" relevante.
+        String logEntry;
+        if (scoreType.equals("Recompensa")) {
+            logEntry = String.format("%s [CDMX] | Fuente: %s | Puntos: +%d | Razón: %s",
+                    timestamp, minigameId, pointsAwarded, reason);
+        } else {
+            logEntry = String.format("%s [CDMX] | Minijuego: %s | %s: %d | Puntos: +%d | Razón: %s",
+                    timestamp, minigameId, scoreType, scoreValue, pointsAwarded, reason);
+        }
 
         List<String> history = data.config.getStringList("history");
         history.add(logEntry);
