@@ -4,6 +4,7 @@ version: 1.0
 main: com.TNTStudios.deWaltCore.DeWaltCore
 api-version: 1.19
 author: TuNombre
+depend: [Oraxen]
 
 commands:
   empezar:

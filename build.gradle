@@ -16,10 +16,15 @@ repositories {
         name = "sonatype"
         url = "https://oss.sonatype.org/content/groups/public/"
     }
+    // Dile a Gradle que también busque JARS en la carpeta 'libs'
+    flatDir {
+        dirs 'libs'
+    }
 }
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21-R0.1-SNAPSHOT")
+    compileOnly name: 'Oraxen'
 }
 
 tasks {
