@@ -6,3 +6,12 @@ authors: [ TNTStudios ]
 website: https://tntstudiosn.space/
 softdepend:
   - DecentHolograms
+
+# --- Comandos Añadidos ---
+commands:
+  empezar:
+    description: Comienza el cronómetro para el laberinto.
+    usage: /empezar
+  detener:
+    description: Detiene el cronómetro y registra tu tiempo en el laberinto.
+    usage: /detener
