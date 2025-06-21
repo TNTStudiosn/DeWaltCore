@@ -1,17 +1,18 @@
+# plugin.yml
 name: DeWaltCore
-version: '1.0.0'
+version: 1.0
 main: com.TNTStudios.deWaltCore.DeWaltCore
-api-version: '1.21'
-authors: [ TNTStudios ]
-website: https://tntstudiosn.space/
-softdepend:
-  - DecentHolograms
+api-version: 1.19
+author: TuNombre
 
-# --- Comandos Añadidos ---
 commands:
   empezar:
-    description: Comienza el cronómetro para el laberinto.
+    description: Inicia el minijuego del laberinto.
     usage: /empezar
   detener:
-    description: Detiene el cronómetro y registra tu tiempo en el laberinto.
+    description: Finaliza el minijuego del laberinto.
     usage: /detener
+  # --- MI NUEVO COMANDO ---
+  taladro:
+    description: Inicia el minijuego del taladro.
+    usage: /taladro

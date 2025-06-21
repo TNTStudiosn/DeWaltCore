@@ -173,6 +173,10 @@ public class PointsManager {
         }.runTaskAsynchronously(plugin);
     }
 
+    /**
+     * Registra el tiempo de un jugador en un minijuego donde un tiempo MENOR es mejor.
+     * @return Los puntos ganados.
+     */
     public int recordCompletion(Player player, String minigameId, int newTime) {
         UUID uuid = player.getUniqueId();
         PlayerData data = playerDataCache.get(uuid);
@@ -184,7 +188,7 @@ public class PointsManager {
         FileConfiguration config = data.config;
         int bestTime = config.getInt("minigames." + minigameId + ".best-time", -1);
         int improvementCount = config.getInt("minigames." + minigameId + ".improvement-count", 0);
-        int pointsAwarded = 0;
+        int pointsAwarded;
         String reason;
 
         if (bestTime == -1) {
@@ -201,29 +205,81 @@ public class PointsManager {
             config.set("minigames." + minigameId + ".best-time", newTime);
             config.set("minigames." + minigameId + ".improvement-count", improvementCount + 1);
         } else {
+            // Si el tiempo no es mejor, no se hace nada y no se otorgan puntos.
             return 0;
+        }
+
+        updateAndSavePlayerData(player, data, minigameId, newTime, pointsAwarded, reason, "Tiempo");
+        return pointsAwarded;
+    }
+
+    // --- MI NUEVO MÉTODO PARA MINIJUEGOS BASADOS EN PUNTUACIÓN ---
+    /**
+     * Registra la puntuación de un jugador en un minijuego donde una puntuación MAYOR es mejor.
+     * @return Los puntos ganados.
+     */
+    public int recordScore(Player player, String minigameId, int newScore) {
+        UUID uuid = player.getUniqueId();
+        PlayerData data = playerDataCache.get(uuid);
+        if (data == null) {
+            plugin.getLogger().warning("Intenté registrar puntos para " + player.getName() + " pero sus datos no estaban cacheados.");
+            return 0;
+        }
+
+        FileConfiguration config = data.config;
+        // Aquí la lógica cambia: -1 sigue siendo "nunca ha jugado", pero ahora buscamos un score mayor.
+        int bestScore = config.getInt("minigames." + minigameId + ".best-score", -1);
+        int improvementCount = config.getInt("minigames." + minigameId + ".improvement-count", 0);
+        int pointsAwarded;
+        String reason;
+
+        if (bestScore == -1) {
+            pointsAwarded = 10;
+            reason = "Primera participación";
+            config.set("minigames." + minigameId + ".best-score", newScore);
+        } else if (newScore > bestScore) {
+            // El sistema de puntos por mejora es el mismo que en el otro minijuego.
+            pointsAwarded = switch (improvementCount) {
+                case 0 -> 5;
+                // --- MI CORRECCIÓN ---
+                // Ajusto los puntos a 5 y 1 según lo solicitado, similar al otro minijuego.
+                default -> 1;
+            };
+            reason = "Nuevo récord personal";
+            config.set("minigames." + minigameId + ".best-score", newScore);
+            config.set("minigames." + minigameId + ".improvement-count", improvementCount + 1);
+        } else {
+            // Si el puntaje no es mejor, no se otorgan puntos.
+            return 0;
+        }
+
+        updateAndSavePlayerData(player, data, minigameId, newScore, pointsAwarded, reason, "Pinturas");
+        return pointsAwarded;
+    }
+
+    /**
+     * Método centralizado para actualizar y guardar los datos del jugador.
+     */
+    private void updateAndSavePlayerData(Player player, PlayerData data, String minigameId, int scoreValue, int pointsAwarded, String reason, String scoreType) {
+        if (pointsAwarded <= 0) {
+            return;
         }
 
         int totalPoints = data.totalPoints + pointsAwarded;
         data.totalPoints = totalPoints;
-        config.set("total-points", totalPoints);
-        config.set("player-name", player.getName());
+        data.config.set("total-points", totalPoints);
+        data.config.set("player-name", player.getName());
 
         String timestamp = LocalDateTime.now(cdmxZoneId).format(dateTimeFormatter);
-        String logEntry = String.format("%s [CDMX] | Minijuego: %s | Tiempo: %ds | Puntos: +%d | Razón: %s",
-                timestamp, minigameId, newTime, pointsAwarded, reason);
+        String logEntry = String.format("%s [CDMX] | Minijuego: %s | %s: %d | Puntos: +%d | Razón: %s",
+                timestamp, minigameId, scoreType, scoreValue, pointsAwarded, reason);
 
-        List<String> history = config.getStringList("history");
+        List<String> history = data.config.getStringList("history");
         history.add(logEntry);
-        config.set("history", history);
+        data.config.set("history", history);
 
-        savePlayerFile(data.file, config);
-
-        if (pointsAwarded > 0) {
-            updateLeaderboard(uuid, player.getName(), totalPoints);
-        }
-
-        return pointsAwarded;
+        savePlayerFile(data.file, data.config);
+        updateLeaderboard(player.getUniqueId(), player.getName(), totalPoints);
     }
 
     private void savePlayerFile(File file, FileConfiguration config) {

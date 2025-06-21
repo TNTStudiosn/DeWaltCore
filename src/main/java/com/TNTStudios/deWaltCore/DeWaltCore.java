@@ -1,6 +1,10 @@
 // FILE: src/main/java/com/TNTStudios/deWaltCore/DeWaltCore.java
 package com.TNTStudios.deWaltCore;
 
+// Importo las nuevas clases del minijuego del taladro
+import com.TNTStudios.deWaltCore.minigames.drill.DrillCommand;
+import com.TNTStudios.deWaltCore.minigames.drill.DrillListener;
+import com.TNTStudios.deWaltCore.minigames.drill.DrillManager;
 import com.TNTStudios.deWaltCore.minigames.MinigameListener;
 import com.TNTStudios.deWaltCore.minigames.maze.MazeCommand;
 import com.TNTStudios.deWaltCore.minigames.maze.MazeManager;
@@ -13,6 +17,8 @@ public final class DeWaltCore extends JavaPlugin {
 
     private static PointsManager pointsManager;
     private MazeManager mazeManager;
+    // --- MI NUEVO MANAGER ---
+    private DrillManager drillManager;
 
     @Override
     public void onEnable() {
@@ -22,14 +28,24 @@ public final class DeWaltCore extends JavaPlugin {
         // --- Sistema de Puntos y Minijuegos ---
         pointsManager = new PointsManager(this);
         mazeManager = new MazeManager(this, pointsManager);
+        // Inicializo mi nuevo manager del taladro
+        drillManager = new DrillManager(this, pointsManager);
 
         // --- Comandos ---
+        // Laberinto
         MazeCommand mazeCommand = new MazeCommand(mazeManager);
         getCommand("empezar").setExecutor(mazeCommand);
         getCommand("detener").setExecutor(mazeCommand);
 
+        // Taladro (necesito añadir 'taladro' a mi plugin.yml)
+        DrillCommand drillCommand = new DrillCommand(drillManager);
+        getCommand("taladro").setExecutor(drillCommand);
+
+
         // --- Listeners ---
         getServer().getPluginManager().registerEvents(new MinigameListener(mazeManager), this);
+        // Registro el nuevo listener para el taladro
+        getServer().getPluginManager().registerEvents(new DrillListener(drillManager), this);
 
         // Tarea periódica para guardar el leaderboard de forma segura.
         // Se ejecuta cada 5 minutos (6000 ticks = 20 ticks/seg * 60 seg/min * 5 min).
