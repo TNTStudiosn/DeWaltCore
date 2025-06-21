@@ -3,6 +3,7 @@ package com.TNTStudios.deWaltCore.minigames.drill;
 
 import com.TNTStudios.deWaltCore.DeWaltCore;
 import com.TNTStudios.deWaltCore.points.PointsManager;
+import com.TNTStudios.deWaltCore.scoreboard.DeWaltScoreboardManager;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.*;
@@ -126,6 +127,20 @@ public class DrillManager {
         }
 
         player.sendTitle(ChatColor.YELLOW + "¡Tiempo!", finalMessage, 10, 80, 20);
+
+        // --- MI CORRECCIÓN 1: ACTUALIZAR EL SCOREBOARD ---
+        // Al igual que en el laberinto, necesito forzar la actualización del scoreboard
+        // para que el jugador vea sus nuevos puntos y ranking al instante.
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                int totalPoints = pointsManager.getTotalPoints(player);
+                int topPosition = pointsManager.getPlayerRank(player);
+                List<PointsManager.PlayerScore> topPlayers = pointsManager.getTopPlayers(3);
+                // Llamo al método estático del manager del scoreboard para mostrar la página por defecto.
+                DeWaltScoreboardManager.showDefaultPage(player, topPosition, totalPoints, false, topPlayers);
+            }
+        }.runTask(plugin); // Lo ejecuto en el siguiente tick para asegurar que todos los datos estén guardados y la UI se actualice en el hilo principal.
     }
 
     public void handlePlayerQuit(Player player) {
@@ -152,16 +167,24 @@ public class DrillManager {
 
         Art randomArt = ALLOWED_ART.get(random.nextInt(ALLOWED_ART.size()));
 
-        // Spawneo la pintura y la configuro.
-        Painting painting = world.spawn(loc, Painting.class, p -> {
-            p.setArt(randomArt, true); // El 'true' fuerza a que se coloque aunque haya otra entidad.
-            p.setFacingDirection(blockFace, true);
-        });
+        // --- MI CORRECCIÓN 2: MÉTODO DE SPAWN DE PINTURA MÁS ROBUSTO ---
+        // En lugar de configurar la pintura dentro del spawn, lo que puede ser inconsistente,
+        // la creo primero, ajusto su dirección y luego intento establecer el arte.
+        // El método setArt(art, force) devuelve un booleano que me indica si tuvo éxito.
+        Painting painting = world.spawn(loc, Painting.class);
+        painting.setFacingDirection(blockFace, true);
 
-        // La API a veces no logra colocar la pintura si el espacio no es válido.
-        if (!painting.isValid() || painting.isDead()) {
+        // Si no se puede colocar el arte (ej. no hay espacio), el método devuelve falso.
+        if (!painting.setArt(randomArt, true)) {
+            painting.remove(); // Elimino la entidad de pintura fallida para no dejar basura.
             player.playSound(player.getLocation(), Sound.BLOCK_DISPENSER_FAIL, 1.0f, 1.2f);
             return; // No se pudo colocar, no sumo puntos.
+        }
+
+        // Por seguridad, compruebo de nuevo si la pintura es válida antes de continuar.
+        if (!painting.isValid() || painting.isDead()) {
+            player.playSound(player.getLocation(), Sound.BLOCK_DISPENSER_FAIL, 1.0f, 1.2f);
+            return;
         }
 
         state.score++;
@@ -242,8 +265,8 @@ public class DrillManager {
         // Para quitar el taladro, itero sobre su inventario.
         // Así evito quitar un stack completo si el jugador de alguna forma consiguió más de uno.
         for (ItemStack item : player.getInventory().getContents()) {
-            if (item != null && item.hasItemMeta() && item.getItemMeta().getDisplayName().contains(DRILL_ITEM_NAME_ID)) {
-                item.setAmount(0);
+            if (item != null && isDrillItem(item)) { // Reutilizo mi método de comprobación
+                player.getInventory().remove(item); // Uso el método remove que es más seguro que setAmount(0)
                 break; // Solo quito uno.
             }
         }
