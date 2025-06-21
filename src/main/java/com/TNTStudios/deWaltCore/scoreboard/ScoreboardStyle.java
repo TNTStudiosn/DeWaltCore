@@ -13,7 +13,14 @@ public class ScoreboardStyle {
         lines.add("§8━━━━━━━━━━━━━━━━━━━━");
 
         lines.add("§7Tu posición en el top:");
-        lines.add("§e  #" + topPosition + " §7con §f" + points + " §7pts");
+        // Añado lógica para mostrar la posición correctamente.
+        // Si la posición es 0 o menos, significa que no está clasificado.
+        if (topPosition > 0) {
+            lines.add("§e  #" + topPosition + " §7con §f" + points + " §7pts");
+        } else {
+            lines.add("§c  Sin clasificar");
+        }
+
 
         lines.add("§8 "); // espacio
 

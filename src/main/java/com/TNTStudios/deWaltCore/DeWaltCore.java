@@ -10,6 +10,9 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 public final class DeWaltCore extends JavaPlugin {
 
+    // Lo hago estático para poder accederlo desde mis listeners.
+    private static PointsManager pointsManager;
+
     @Override
     public void onEnable() {
         // --- Scoreboard y Registro (Existente) ---
@@ -18,7 +21,7 @@ public final class DeWaltCore extends JavaPlugin {
 
         // --- Sistema de Minijuego de Laberinto (Nuevo) ---
         // 1. Inicializo mis nuevos managers
-        PointsManager pointsManager = new PointsManager(this);
+        pointsManager = new PointsManager(this); // Lo asigno a mi variable estática
         MazeManager mazeManager = new MazeManager(this, pointsManager);
 
         // 2. Registro los nuevos comandos
@@ -32,6 +35,14 @@ public final class DeWaltCore extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        // Aquí podríamos guardar datos si fuera necesario, pero mi PointsManager guarda al instante.
+        // Guardo el leaderboard al apagar el servidor para asegurar que todo esté al día.
+        if (pointsManager != null) {
+            pointsManager.saveLeaderboard();
+        }
+    }
+
+    // Mi getter estático para que otras clases accedan al PointsManager.
+    public static PointsManager getPointsManager() {
+        return pointsManager;
     }
 }

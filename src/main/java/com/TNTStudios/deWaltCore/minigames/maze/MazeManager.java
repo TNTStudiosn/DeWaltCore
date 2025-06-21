@@ -87,10 +87,11 @@ public class MazeManager {
                     String.format(ChatColor.YELLOW + "Tu tiempo fue de %s", formatTime(finalTime)), 10, 80, 20);
         }
 
-        // Actualizo el scoreboard principal
+        // Actualizo el scoreboard principal con los datos reales.
         int totalPoints = pointsManager.getTotalPoints(player);
-        // Aquí uso valores placeholder para top y unlockedAll, ya que no tengo cómo calcularlos.
-        DeWaltScoreboardManager.updateDefaultPage(player, 0, totalPoints, false);
+        int topPosition = pointsManager.getPlayerRank(player); // Obtengo la posición real del jugador.
+        // Aquí uso el valor de "unlockedAll" en false, porque aún no lo implemento.
+        DeWaltScoreboardManager.updateDefaultPage(player, topPosition, totalPoints, false);
     }
 
     /**
