@@ -378,19 +378,26 @@ public class DrillManager {
         broadcastToGame(ChatMessageType.ACTION_BAR, new TextComponent(message));
     }
 
-    // --- OPTIMIZACIÓN: Se ejecutan de forma asíncrona para no cargar el hilo principal.
+    // --- MI REFINAMIENTO (100% SEGURO) ---
     private void broadcastToLobby(String message, UUID excludedPlayer) {
+        // Hago una copia de la lista de UUIDs para trabajar sobre ella de forma segura.
+        List<UUID> lobbyPlayersCopy = new ArrayList<>(lobbyPlayers);
+
         new BukkitRunnable() {
             @Override
             public void run() {
-                for (UUID uuid : lobbyPlayers) {
+                // Este bucle se ejecuta en el hilo principal, por lo que es totalmente seguro.
+                for (UUID uuid : lobbyPlayersCopy) {
                     if (!uuid.equals(excludedPlayer)) {
                         Player p = Bukkit.getPlayer(uuid);
-                        if (p != null) p.sendMessage(message);
+                        // Compruebo que el jugador sigue online antes de enviarle nada.
+                        if (p != null && p.isOnline()) {
+                            p.sendMessage(message);
+                        }
                     }
                 }
             }
-        }.runTaskAsynchronously(plugin);
+        }.runTask(plugin); // La clave es ejecutar la tarea en el hilo principal con runTask().
     }
 
     private void broadcastToGame(String message) {
