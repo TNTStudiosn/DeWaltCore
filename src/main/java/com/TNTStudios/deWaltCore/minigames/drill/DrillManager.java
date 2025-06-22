@@ -4,6 +4,7 @@ package com.TNTStudios.deWaltCore.minigames.drill;
 import com.TNTStudios.deWaltCore.DeWaltCore;
 import com.TNTStudios.deWaltCore.points.PointsManager;
 import io.th0rgal.oraxen.api.OraxenItems;
+import io.th0rgal.oraxen.items.ItemBuilder;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.*;
@@ -382,11 +383,23 @@ public class DrillManager {
     }
 
     private void giveDrillItem(Player player) {
-        // Le doy el item que usará para colocar la pintura
-        OraxenItems.giveItem(player, "taladro");
+        // ========== MI CORRECCIÓN #1 ==========
+        // El método giveItem(Player, String) ya no existe.
+        // Ahora obtenemos el ItemBuilder, construimos el ItemStack y lo añadimos al inventario.
+        ItemBuilder itemBuilder = OraxenItems.getItemById("taladro");
+        if (itemBuilder != null) {
+            player.getInventory().addItem(itemBuilder.build());
+        } else {
+            plugin.getLogger().warning("Se intentó dar el ítem 'taladro' pero no se encontró en Oraxen.");
+        }
     }
 
     private void removeDrillItem(Player player) {
-        player.getInventory().remove(OraxenItems.getItemById("taladro").build());
+        // ========== MI CORRECCIÓN #2 ==========
+        // Hacemos el proceso más robusto para evitar errores si el item no existe.
+        ItemBuilder itemBuilder = OraxenItems.getItemById("taladro");
+        if (itemBuilder != null) {
+            player.getInventory().remove(itemBuilder.build());
+        }
     }
 }

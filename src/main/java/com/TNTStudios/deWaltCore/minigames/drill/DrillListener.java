@@ -1,9 +1,11 @@
 // FILE: src/main/java/com/TNTStudios/deWaltCore/minigames/drill/DrillListener.java
 package com.TNTStudios.deWaltCore.minigames.drill;
 
-// Añado el import para el evento de Oraxen
-
+import io.th0rgal.oraxen.api.OraxenItems;
 import io.th0rgal.oraxen.api.events.furniture.OraxenFurnitureInteractEvent;
+// Importamos la ruta correcta de la clase FurnitureMechanic que me proporcionaste
+import io.th0rgal.oraxen.mechanics.provided.gameplay.furniture.FurnitureMechanic;
+import io.th0rgal.oraxen.mechanics.Mechanic;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -28,29 +30,28 @@ public class DrillListener implements Listener {
         this.drillManager = drillManager;
     }
 
-    /**
-     * Mi nuevo handler para cuando un jugador hace clic derecho en la mesa de trabajo.
-     * Es la forma más limpia y optimizada de detectar esta interacción.
-     */
     @EventHandler
     public void onFurnitureInteract(OraxenFurnitureInteractEvent event) {
         Player player = event.getPlayer();
 
-        // Solo me interesa si el jugador está en el juego.
         if (!drillManager.isPlayerInGame(player)) {
             return;
         }
 
-        // Compruebo si el mueble con el que se interactuó es mi mesa_de_trabajo.
-        if (event.getFurniture().getItemID().equalsIgnoreCase("mesa_de_trabajo")) {
-            event.setCancelled(true); // Cancelo el evento para evitar cualquier acción por defecto.
-            drillManager.handlePaintingPickup(player);
+        Mechanic mechanic = event.getMechanic();
+
+        if (mechanic instanceof FurnitureMechanic furnitureMechanic) {
+            // ========== LA CORRECCIÓN FINAL ==========
+            // El método correcto, según el código fuente que me diste, es getItemID()
+            String furnitureId = furnitureMechanic.getItemID();
+
+            if ("mesa_de_trabajo".equalsIgnoreCase(furnitureId)) {
+                event.setCancelled(true);
+                drillManager.handlePaintingPickup(player);
+            }
         }
     }
 
-    /**
-     * Este handler ahora es solo para colocar la pintura.
-     */
     @EventHandler(priority = EventPriority.HIGH)
     public void onPlayerInteract(PlayerInteractEvent event) {
         Player player = event.getPlayer();
@@ -58,14 +59,12 @@ public class DrillListener implements Listener {
             return;
         }
 
-        // Me aseguro de que sea un clic derecho en un bloque para colocar la pintura.
         if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getHand() != EquipmentSlot.HAND) {
             return;
         }
 
         ItemStack itemInHand = player.getInventory().getItemInMainHand();
 
-        // Si el jugador tiene el item "taladro" (que ahora representa una pintura), la coloca.
         if (drillManager.isDrillItem(itemInHand)) {
             event.setCancelled(true);
             drillManager.handlePaintingPlace(player, event.getBlockFace());
@@ -74,11 +73,9 @@ public class DrillListener implements Listener {
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
-        // Si un jugador se desconecta, lo saco del lobby o del juego.
         drillManager.handlePlayerQuit(event.getPlayer());
     }
 
-    // --- PROTECCIÓN DE PINTURAS (sin cambios) ---
     @EventHandler
     public void onHangingBreak(HangingBreakEvent event) {
         if (event.getCause() != HangingBreakEvent.RemoveCause.ENTITY) {
