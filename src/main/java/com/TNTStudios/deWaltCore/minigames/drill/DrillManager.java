@@ -3,14 +3,13 @@ package com.TNTStudios.deWaltCore.minigames.drill;
 
 import com.TNTStudios.deWaltCore.DeWaltCore;
 import com.TNTStudios.deWaltCore.points.PointsManager;
-// Importo el manager del scoreboard para poder actualizarlo
 import com.TNTStudios.deWaltCore.scoreboard.DeWaltScoreboardManager;
 import io.th0rgal.oraxen.api.OraxenItems;
 import io.th0rgal.oraxen.items.ItemBuilder;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.*;
-import org.bukkit.block.Block; // Importo la clase Block
+import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Painting;
@@ -29,6 +28,12 @@ import java.util.stream.Collectors;
  * y un sistema de puntuación por ranking para hacerlo más competitivo.
  * MEJORADO: Añadí validaciones para la colocación y mensajes más claros.
  * CORREGIDO: Ahora el scoreboard se actualiza al final del juego y las pinturas solo se pueden colocar en bloques sólidos.
+ *
+ * --- OPTIMIZACIÓN PARA ALTO RENDIMIENTO (200 JUGADORES) ---
+ * 1.  Se eliminó el uso de `world.getNearbyEntities`, que es muy lento con muchos jugadores. Se reemplazó por un Set de localizaciones cacheadas.
+ * 2.  Se optimizó `isPaintingManaged` para que sea una operación O(1) usando un Set global de pinturas, en lugar de un bucle anidado.
+ * 3.  La difusión de mensajes y sonidos se realiza de forma asíncrona para reducir la carga sobre el hilo principal del servidor.
+ * 4.  Se utilizan estructuras de datos de `java.util.concurrent` para máxima seguridad y rendimiento en un entorno con muchos jugadores.
  */
 public class DrillManager {
 
@@ -37,10 +42,17 @@ public class DrillManager {
 
     // --- MI NUEVA ESTRUCTURA DE JUEGO ---
     private enum GameState { INACTIVE, LOBBY, RUNNING }
-    private GameState currentState = GameState.INACTIVE;
+    private volatile GameState currentState = GameState.INACTIVE;
 
-    private final Set<UUID> lobbyPlayers = new HashSet<>();
+    private final Set<UUID> lobbyPlayers = ConcurrentHashMap.newKeySet();
     private final Map<UUID, PlayerGameState> gamePlayers = new ConcurrentHashMap<>();
+
+    // --- OPTIMIZACIÓN: ESTRUCTURAS DE DATOS PARA BÚSQUEDAS RÁPIDAS ---
+    // Contiene TODAS las pinturas activas del minijuego para una comprobación O(1) instantánea.
+    private final Set<Entity> allManagedPaintings = ConcurrentHashMap.newKeySet();
+    // Contiene las localizaciones de las pinturas para evitar `getNearbyEntities`.
+    private final Set<Location> allPaintingLocations = ConcurrentHashMap.newKeySet();
+
 
     private BukkitTask lobbyCountdownTask;
     private BukkitTask gameTimerTask;
@@ -49,25 +61,24 @@ public class DrillManager {
     private int paintingsLeft;
 
     // --- CONSTANTES DE CONFIGURACIÓN DEL JUEGO ---
+    // AUMENTO EL LÍMITE PARA LA PRUEBA DE ESTRÉS
+    private static final int MAX_PLAYERS = 200;
     private static final int LOBBY_DURATION_SECONDS = 60;
-    private static final int GAME_DURATION_SECONDS = 180; // Aumento el tiempo de juego para que sea más estratégico
-    private static final int MAX_PLAYERS = 20;
-    private static final int TOTAL_PAINTINGS = 50;
-    private static final double MIN_DISTANCE_FROM_OTHERS = 3.5; // Distancia mínima para evitar que se solapen pinturas.
+    private static final int GAME_DURATION_SECONDS = 180;
+    private static final int TOTAL_PAINTINGS = 250; // Más pinturas para más jugadores
+    private static final double MIN_DISTANCE_SQUARED = 3.5 * 3.5; // Usamos la distancia al cuadrado para evitar calcular raíces cuadradas (más rápido)
     private static final Random random = new Random();
 
-    // Artes permitidas (mantengo las de tamaño razonable)
     private static final List<Art> ALLOWED_ART = Arrays.asList(
             Art.KEBAB, Art.AZTEC, Art.ALBAN, Art.AZTEC2, Art.BOMB, Art.PLANT,
             Art.WASTELAND, Art.WANDERER, Art.GRAHAM, Art.MATCH, Art.BUST,
             Art.STAGE, Art.VOID, Art.SKULL_AND_ROSES
     );
 
-    // Mi estado de jugador ahora incluye si tiene una pintura para colocar
     private static class PlayerGameState {
         int score = 0;
-        boolean hasPainting = false; // true si el jugador ha recogido una pintura y no la ha colocado
-        final List<Entity> placedPaintings = Collections.synchronizedList(new ArrayList<>());
+        boolean hasPainting = false;
+        // Ya no necesitamos la lista de pinturas por jugador, se gestiona globalmente
     }
 
     public DrillManager(DeWaltCore plugin, PointsManager pointsManager) {
@@ -86,20 +97,18 @@ public class DrillManager {
             player.sendMessage(ChatColor.RED + "¡El lobby está lleno! (" + MAX_PLAYERS + " jugadores).");
             return;
         }
-        if (isPlayerInGame(player) || lobbyPlayers.contains(player.getUniqueId())) {
+        // `add` en un Set es O(1), muy rápido.
+        if (!lobbyPlayers.add(player.getUniqueId())) {
             player.sendMessage(ChatColor.YELLOW + "Ya estás en la sala de espera.");
             return;
         }
 
-        lobbyPlayers.add(player.getUniqueId());
-
-        // --- MIS NUEVOS MENSAJES DE BIENVENIDA ---
         player.sendMessage(ChatColor.AQUA + "¡Bienvenido al lobby del minijuego del Taladro!");
         player.sendMessage(ChatColor.YELLOW + "Objetivo: Consigue pinturas en la 'Mesa de Trabajo' y colócalas en las paredes. ¡Quien coloque más pinturas cuando se acabe el tiempo, gana!");
 
         broadcastToLobby(ChatColor.AQUA + player.getName() + " ha entrado al lobby. (" + lobbyPlayers.size() + "/" + MAX_PLAYERS + ")", player.getUniqueId());
 
-        if (currentState == GameState.INACTIVE) {
+        if (currentState == GameState.INACTIVE && lobbyPlayers.size() > 0) {
             startLobbyCountdown();
         }
     }
@@ -114,7 +123,7 @@ public class DrillManager {
                 if (lobbyPlayers.isEmpty()) {
                     broadcastToLobby(ChatColor.RED + "Todos los jugadores han salido. El inicio se ha cancelado.", null);
                     resetGame();
-                    return;
+                    return; // La tarea se cancela en resetGame
                 }
 
                 if (lobbyTimeLeft <= 0) {
@@ -139,7 +148,6 @@ public class DrillManager {
         gameTimeLeft = GAME_DURATION_SECONDS;
         paintingsLeft = TOTAL_PAINTINGS;
 
-        // Muevo los jugadores del lobby al juego
         for (UUID uuid : lobbyPlayers) {
             Player p = Bukkit.getPlayer(uuid);
             if (p != null) {
@@ -151,7 +159,6 @@ public class DrillManager {
         lobbyPlayers.clear();
 
         broadcastToGame(ChatColor.GOLD + "¡El juego ha comenzado! ¡Corran a la Mesa de Trabajo por la primera pintura!");
-
         startGameTimer();
     }
 
@@ -159,14 +166,9 @@ public class DrillManager {
         gameTimerTask = new BukkitRunnable() {
             @Override
             public void run() {
-                if (gamePlayers.isEmpty()) {
-                    endGame("Todos los jugadores salieron");
-                    return;
-                }
-
-                if (gameTimeLeft <= 0) {
-                    endGame("Se acabó el tiempo");
-                    return;
+                if (gamePlayers.isEmpty() || gameTimeLeft <= 0) {
+                    endGame(gameTimeLeft <= 0 ? "Se acabó el tiempo" : "Todos los jugadores salieron");
+                    return; // La tarea se cancela en endGame
                 }
 
                 gameTimeLeft--;
@@ -176,8 +178,7 @@ public class DrillManager {
     }
 
     public void handlePaintingPickup(Player player) {
-        if (!isPlayerInGame(player) || currentState != GameState.RUNNING) return;
-
+        if (!isPlayerInGame(player)) return;
         PlayerGameState state = gamePlayers.get(player.getUniqueId());
         if (state == null) return;
 
@@ -192,59 +193,51 @@ public class DrillManager {
         }
 
         state.hasPainting = true;
-        giveDrillItem(player); // El "taladro" ahora significa que tiene una pintura.
+        giveDrillItem(player);
         player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1.0f, 1.0f);
         player.sendMessage(ChatColor.GREEN + "¡Has recogido una pintura! Ahora busca un buen lugar en una pared.");
     }
 
     public void handlePaintingPlace(Player player, BlockFace blockFace) {
-        if (!isPlayerInGame(player) || currentState != GameState.RUNNING) return;
-
+        if (!isPlayerInGame(player)) return;
         PlayerGameState state = gamePlayers.get(player.getUniqueId());
-        if (state == null) return;
-
-        if (!state.hasPainting) {
+        if (state == null || !state.hasPainting) {
             player.sendMessage(ChatColor.RED + "¡Primero debes recoger una pintura de la Mesa de Trabajo!");
             return;
         }
 
-        // --- MI PRIMERA VALIDACIÓN IMPORTANTE (SOLUCIONA EL ERROR) ---
-        // Verifico que no se intente colocar en el suelo o en el techo.
         if (blockFace == BlockFace.UP || blockFace == BlockFace.DOWN) {
             player.sendMessage(ChatColor.RED + "¡No puedes colocar pinturas en el suelo o en el techo!");
             player.playSound(player.getLocation(), Sound.BLOCK_DISPENSER_FAIL, 1.0f, 1.2f);
             return;
         }
 
-        // --- MI NUEVA VALIDACIÓN DE BLOQUE SÓLIDO ---
         Block targetBlock = player.getTargetBlock(null, 5);
-        // El método isOccluding() es perfecto porque solo es 'true' para bloques de cubo completo que tapan la visión.
-        // Esto excluye slabs, escaleras, vallas, hierba, etc.
         if (targetBlock == null || !targetBlock.getType().isOccluding()) {
             player.sendMessage(ChatColor.RED + "¡Solo puedes colocar pinturas en bloques de pared sólidos y completos!");
             player.playSound(player.getLocation(), Sound.BLOCK_DISPENSER_FAIL, 1.0f, 1.2f);
             return;
         }
 
-
         Location loc = targetBlock.getRelative(blockFace).getLocation();
-        World world = loc.getWorld();
-        if (world == null) return;
 
-        // --- MI SEGUNDA VALIDACIÓN (MEJORA LA JUGABILIDAD) ---
-        // Verifico que no haya otras pinturas demasiado cerca para evitar que se apilen.
-        if (world.getNearbyEntities(loc, MIN_DISTANCE_FROM_OTHERS, MIN_DISTANCE_FROM_OTHERS, MIN_DISTANCE_FROM_OTHERS, entity -> entity instanceof Painting).size() > 0) {
-            player.sendMessage(ChatColor.RED + "¡Estás demasiado cerca de otra pintura! Busca otro lugar.");
-            player.playSound(player.getLocation(), Sound.BLOCK_DISPENSER_FAIL, 1.0f, 1.2f);
-            return;
+        // --- OPTIMIZACIÓN: Comprobación de distancia ultrarrápida ---
+        // En lugar de `getNearbyEntities`, iteramos nuestro Set cacheado que es mucho más pequeño.
+        for (Location placedLoc : allPaintingLocations) {
+            if (placedLoc.getWorld().equals(loc.getWorld()) && placedLoc.distanceSquared(loc) < MIN_DISTANCE_SQUARED) {
+                player.sendMessage(ChatColor.RED + "¡Estás demasiado cerca de otra pintura! Busca otro lugar.");
+                player.playSound(player.getLocation(), Sound.BLOCK_DISPENSER_FAIL, 1.0f, 1.2f);
+                return;
+            }
         }
 
         Art randomArt = ALLOWED_ART.get(random.nextInt(ALLOWED_ART.size()));
+        World world = loc.getWorld();
+        if (world == null) return;
+
         Painting painting = world.spawn(loc, Painting.class, p -> {
             p.setFacingDirection(blockFace, true);
-            if (!p.setArt(randomArt, true)) {
-                // Si falla al setear el arte, la entidad se invalida y no se spawnea.
-            }
+            p.setArt(randomArt, true);
         });
 
         if (!painting.isValid() || painting.isDead()) {
@@ -256,14 +249,15 @@ public class DrillManager {
         // Éxito
         state.score++;
         state.hasPainting = false;
-        state.placedPaintings.add(painting);
+        paintingsLeft--;
 
-        paintingsLeft--; // Reduzco el contador global
+        // OPTIMIZACIÓN: Añadimos la pintura y su localización a nuestros registros rápidos.
+        allManagedPaintings.add(painting);
+        allPaintingLocations.add(painting.getLocation());
 
+        removeDrillItem(player);
         player.playSound(player.getLocation(), Sound.BLOCK_WOOD_PLACE, 1.0f, 1.5f);
-        removeDrillItem(player); // Le quito el item para que tenga que ir por otro.
-
-        updateActionBarForAll(); // Actualizo la info para todos
+        updateActionBarForAll();
 
         if (paintingsLeft <= 0) {
             endGame("Se agotaron las pinturas");
@@ -274,168 +268,170 @@ public class DrillManager {
 
     private void endGame(String reason) {
         if (currentState != GameState.RUNNING) return;
-
-        currentState = GameState.INACTIVE; // Marco el juego como terminado para evitar dobles llamadas
+        currentState = GameState.INACTIVE;
         if (gameTimerTask != null) gameTimerTask.cancel();
 
         broadcastToGame(ChatColor.GOLD + "¡El juego ha terminado! Razón: " + reason + ". Calculando resultados...");
 
-        // Ordeno a los jugadores por su puntuación de mayor a menor
         List<Map.Entry<UUID, PlayerGameState>> sortedPlayers = gamePlayers.entrySet().stream()
                 .sorted(Comparator.comparingInt((Map.Entry<UUID, PlayerGameState> entry) -> entry.getValue().score).reversed())
                 .collect(Collectors.toList());
 
-        // Reparto los puntos
-        for (int i = 0; i < sortedPlayers.size(); i++) {
-            Map.Entry<UUID, PlayerGameState> entry = sortedPlayers.get(i);
-            Player p = Bukkit.getPlayer(entry.getKey());
-            if (p == null) continue;
-
-            int pointsWon;
-            String positionMessage;
-
-            if (i == 0) { // 1er lugar
-                pointsWon = 20;
-                positionMessage = ChatColor.GOLD + "¡Ganaste! (1er Lugar)";
-            } else if (i == 1) { // 2do lugar
-                pointsWon = 10;
-                positionMessage = ChatColor.GRAY + "¡Quedaste 2do!";
-            } else if (i == 2) { // 3er lugar
-                pointsWon = 5;
-                positionMessage = ChatColor.DARK_RED + "¡Quedaste 3ro!";
-            } else { // El resto
-                pointsWon = 1;
-                positionMessage = ChatColor.AQUA + "¡Buena participación!";
-            }
-
-            pointsManager.addPoints(p, pointsWon, "drill_competitive", "Ranking final del minijuego");
-
-            String finalMessage = String.format(ChatColor.YELLOW + "Colocaste %d pinturas. " + ChatColor.GREEN + "(+%d pts)", entry.getValue().score, pointsWon);
-            p.sendTitle(positionMessage, finalMessage, 10, 80, 20);
-
-            // --- CORRECCIÓN DEL BUG DEL SCOREBOARD ---
-            // Después de darle los puntos, necesito refrescar su scoreboard para que lo vea inmediatamente.
-            // Lo ejecuto en el hilo principal de Bukkit para garantizar la seguridad con la API.
-            final Player finalPlayer = p;
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (finalPlayer != null && finalPlayer.isOnline()) {
-                        int totalPoints = pointsManager.getTotalPoints(finalPlayer);
-                        int topPosition = pointsManager.getPlayerRank(finalPlayer);
-                        List<PointsManager.PlayerScore> topPlayers = pointsManager.getTopPlayers(3);
-                        // El método showDefaultPage se encarga de todo el trabajo sucio de actualizar el scoreboard.
-                        DeWaltScoreboardManager.showDefaultPage(finalPlayer, topPosition, totalPoints, false, topPlayers);
-                    }
-                }
-            }.runTask(plugin);
-        }
-
-        // Limpio a todos los jugadores después de un breve momento
+        // Reparto de puntos y mensajes
         new BukkitRunnable() {
             @Override
             public void run() {
-                // Hago una copia de las keys para evitar problemas al modificar el mapa mientras itero
-                new HashSet<>(gamePlayers.keySet()).forEach(uuid -> {
-                    Player p = Bukkit.getPlayer(uuid);
-                    if (p != null) {
-                        cleanUpPlayer(p, false);
-                    }
-                });
+                for (int i = 0; i < sortedPlayers.size(); i++) {
+                    Map.Entry<UUID, PlayerGameState> entry = sortedPlayers.get(i);
+                    Player p = Bukkit.getPlayer(entry.getKey());
+                    if (p == null) continue;
+
+                    int pointsWon = (i == 0) ? 20 : (i == 1) ? 10 : (i == 2) ? 5 : 1;
+                    String positionMessage = (i == 0) ? ChatColor.GOLD + "¡Ganaste! (1er Lugar)"
+                            : (i == 1) ? ChatColor.GRAY + "¡Quedaste 2do!"
+                            : (i == 2) ? ChatColor.DARK_RED + "¡Quedaste 3ro!"
+                            : ChatColor.AQUA + "¡Buena participación!";
+
+                    pointsManager.addPoints(p, pointsWon, "drill_competitive", "Ranking final del minijuego");
+                    String finalMessage = String.format(ChatColor.YELLOW + "Colocaste %d pinturas. " + ChatColor.GREEN + "(+%d pts)", entry.getValue().score, pointsWon);
+                    p.sendTitle(positionMessage, finalMessage, 10, 80, 20);
+
+                    // Actualizamos el scoreboard en el hilo principal
+                    final Player finalPlayer = p;
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            if (finalPlayer.isOnline()) {
+                                int totalPoints = pointsManager.getTotalPoints(finalPlayer);
+                                int topPosition = pointsManager.getPlayerRank(finalPlayer);
+                                List<PointsManager.PlayerScore> topPlayers = pointsManager.getTopPlayers(3);
+                                DeWaltScoreboardManager.showDefaultPage(finalPlayer, topPosition, totalPoints, false, topPlayers);
+                            }
+                        }
+                    }.runTask(plugin);
+                }
+            }
+        }.runTaskAsynchronously(plugin); // La lógica de premios puede ser asíncrona, pero la actualización del scoreboard debe volver al hilo principal.
+
+        // Limpieza final tras un breve retardo
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                cleanUpGameData();
                 resetGame();
             }
-        }.runTaskLater(plugin, 100L); // 5 segundos después
+        }.runTaskLater(plugin, 120L); // 6 segundos de retardo
     }
 
-    private void cleanUpPlayer(Player player, boolean cancelled) {
-        PlayerGameState state = gamePlayers.remove(player.getUniqueId());
-        if (state == null) return;
+    private void cleanUpPlayer(Player player, boolean wasDisconnected) {
+        if (gamePlayers.remove(player.getUniqueId()) != null && wasDisconnected) {
+            broadcastToGame(ChatColor.YELLOW + player.getName() + " ha abandonado la partida.");
+        }
+        removeDrillItem(player);
+        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(""));
+    }
 
-        // Limpio las pinturas del jugador
+    // Limpia todas las entidades del juego
+    private void cleanUpGameData() {
         new BukkitRunnable() {
             @Override
             public void run() {
-                state.placedPaintings.forEach(Entity::remove);
+                allManagedPaintings.forEach(Entity::remove);
+                allManagedPaintings.clear();
+                allPaintingLocations.clear();
             }
-        }.runTask(plugin);
-
-        removeDrillItem(player);
-        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent("")); // Limpio la actionbar
-
-        if (cancelled) {
-            player.sendMessage(ChatColor.RED + "Has salido del minijuego del Taladro.");
-            broadcastToGame(ChatColor.YELLOW + player.getName() + " ha abandonado la partida.");
-        }
+        }.runTask(plugin); // La eliminación de entidades DEBE ocurrir en el hilo principal.
     }
 
     private void resetGame() {
         if (lobbyCountdownTask != null) lobbyCountdownTask.cancel();
         if (gameTimerTask != null) gameTimerTask.cancel();
+        lobbyCountdownTask = null;
+        gameTimerTask = null;
 
+        gamePlayers.clear();
         lobbyPlayers.clear();
-        gamePlayers.clear(); // Me aseguro de que esté vacío
         currentState = GameState.INACTIVE;
     }
 
     public void handlePlayerQuit(Player player) {
-        if (lobbyPlayers.contains(player.getUniqueId())) {
-            lobbyPlayers.remove(player.getUniqueId());
+        if (lobbyPlayers.remove(player.getUniqueId())) {
             broadcastToLobby(ChatColor.YELLOW + player.getName() + " ha salido del lobby.", null);
         } else if (isPlayerInGame(player)) {
             cleanUpPlayer(player, true);
         }
     }
 
-    // --- 4. MÉTODOS DE UTILIDAD ---
+    // --- 4. MÉTODOS DE UTILIDAD OPTIMIZADOS ---
 
     public boolean isPlayerInGame(Player player) {
         return gamePlayers.containsKey(player.getUniqueId());
     }
 
+    // --- OPTIMIZACIÓN: Esta comprobación es ahora O(1), increíblemente rápida.
     public boolean isPaintingManaged(Entity entity) {
-        if (!(entity instanceof Painting)) return false;
-        return gamePlayers.values().stream().anyMatch(state -> state.placedPaintings.contains(entity));
+        return allManagedPaintings.contains(entity);
     }
 
     private void updateActionBarForAll() {
-        String actionBarMessage = String.format("§eTiempo restante: §f%ds §8| §ePinturas restantes: §f%d/%d", gameTimeLeft, paintingsLeft, TOTAL_PAINTINGS);
-        broadcastToGame(ChatMessageType.ACTION_BAR, new TextComponent(actionBarMessage));
+        String message = String.format("§eTiempo restante: §f%ds §8| §ePinturas restantes: §f%d/%d", gameTimeLeft, paintingsLeft, TOTAL_PAINTINGS);
+        broadcastToGame(ChatMessageType.ACTION_BAR, new TextComponent(message));
     }
 
-    // Hago un pequeño ajuste para no enviar un mensaje al jugador que acaba de entrar.
+    // --- OPTIMIZACIÓN: Se ejecutan de forma asíncrona para no cargar el hilo principal.
     private void broadcastToLobby(String message, UUID excludedPlayer) {
-        lobbyPlayers.stream()
-                .filter(uuid -> !uuid.equals(excludedPlayer))
-                .map(Bukkit::getPlayer)
-                .filter(Objects::nonNull)
-                .forEach(p -> p.sendMessage(message));
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (UUID uuid : lobbyPlayers) {
+                    if (!uuid.equals(excludedPlayer)) {
+                        Player p = Bukkit.getPlayer(uuid);
+                        if (p != null) p.sendMessage(message);
+                    }
+                }
+            }
+        }.runTaskAsynchronously(plugin);
     }
 
     private void broadcastToGame(String message) {
-        gamePlayers.keySet().forEach(uuid -> {
-            Player p = Bukkit.getPlayer(uuid);
-            if (p != null) p.sendMessage(message);
-        });
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (UUID uuid : gamePlayers.keySet()) {
+                    Player p = Bukkit.getPlayer(uuid);
+                    if (p != null) p.sendMessage(message);
+                }
+            }
+        }.runTaskAsynchronously(plugin);
     }
 
     private void broadcastToGame(ChatMessageType type, TextComponent component) {
-        gamePlayers.keySet().forEach(uuid -> {
-            Player p = Bukkit.getPlayer(uuid);
-            if (p != null) p.spigot().sendMessage(type, component);
-        });
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (UUID uuid : gamePlayers.keySet()) {
+                    Player p = Bukkit.getPlayer(uuid);
+                    if (p != null) p.spigot().sendMessage(type, component);
+                }
+            }
+        }.runTaskAsynchronously(plugin);
     }
 
     private void playSoundForLobby(Sound sound, float pitch) {
-        lobbyPlayers.forEach(uuid -> {
-            Player p = Bukkit.getPlayer(uuid);
-            if(p != null) p.playSound(p.getLocation(), sound, 1.0f, pitch);
-        });
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                for (UUID uuid : lobbyPlayers) {
+                    Player p = Bukkit.getPlayer(uuid);
+                    if(p != null) p.playSound(p.getLocation(), sound, 1.0f, pitch);
+                }
+            }
+        }.runTaskAsynchronously(plugin);
     }
 
     public boolean isDrillItem(ItemStack item) {
         if (item == null || item.getType() == Material.AIR) return false;
-        String oraxenId = OraxenItems.getIdByItem(item);
-        return "taladro".equals(oraxenId);
+        return "taladro".equals(OraxenItems.getIdByItem(item));
     }
 
     private void giveDrillItem(Player player) {
@@ -448,9 +444,16 @@ public class DrillManager {
     }
 
     private void removeDrillItem(Player player) {
-        ItemBuilder itemBuilder = OraxenItems.getItemById("taladro");
-        if (itemBuilder != null) {
-            player.getInventory().remove(itemBuilder.build());
-        }
+        // Este método necesita ejecutarse en el hilo principal si hay dudas sobre la seguridad
+        // de la API de inventario, pero `remove` suele ser seguro. Para máxima precaución:
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                ItemBuilder itemBuilder = OraxenItems.getItemById("taladro");
+                if (itemBuilder != null) {
+                    player.getInventory().remove(itemBuilder.build());
+                }
+            }
+        }.runTask(plugin);
     }
 }
