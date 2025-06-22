@@ -62,10 +62,10 @@ public class DrillManager {
 
     // --- CONSTANTES DE CONFIGURACIÓN DEL JUEGO ---
     // AUMENTO EL LÍMITE PARA LA PRUEBA DE ESTRÉS
-    private static final int MAX_PLAYERS = 200;
+    private static final int MAX_PLAYERS = 20;
     private static final int LOBBY_DURATION_SECONDS = 60;
     private static final int GAME_DURATION_SECONDS = 180;
-    private static final int TOTAL_PAINTINGS = 250; // Más pinturas para más jugadores
+    private static final int TOTAL_PAINTINGS = 50;
     private static final double MIN_DISTANCE_SQUARED = 3.5 * 3.5; // Usamos la distancia al cuadrado para evitar calcular raíces cuadradas (más rápido)
     private static final Random random = new Random();
 
