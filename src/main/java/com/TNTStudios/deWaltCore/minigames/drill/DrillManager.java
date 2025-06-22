@@ -3,11 +3,14 @@ package com.TNTStudios.deWaltCore.minigames.drill;
 
 import com.TNTStudios.deWaltCore.DeWaltCore;
 import com.TNTStudios.deWaltCore.points.PointsManager;
+// Importo el manager del scoreboard para poder actualizarlo
+import com.TNTStudios.deWaltCore.scoreboard.DeWaltScoreboardManager;
 import io.th0rgal.oraxen.api.OraxenItems;
 import io.th0rgal.oraxen.items.ItemBuilder;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.*;
+import org.bukkit.block.Block; // Importo la clase Block
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Painting;
@@ -21,11 +24,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
-  * Mi manager para el minijuego del Taladro.
-  * REESTRUCTURADO: Ahora soporta un lobby de espera, recursos compartidos (pinturas)
-  * y un sistema de puntuación por ranking para hacerlo más competitivo.
-  * MEJORADO: Añadí validaciones para la colocación y mensajes más claros.
-  */
+ * Mi manager para el minijuego del Taladro.
+ * REESTRUCTURADO: Ahora soporta un lobby de espera, recursos compartidos (pinturas)
+ * y un sistema de puntuación por ranking para hacerlo más competitivo.
+ * MEJORADO: Añadí validaciones para la colocación y mensajes más claros.
+ * CORREGIDO: Ahora el scoreboard se actualiza al final del juego y las pinturas solo se pueden colocar en bloques sólidos.
+ */
 public class DrillManager {
 
     private final DeWaltCore plugin;
@@ -49,8 +53,7 @@ public class DrillManager {
     private static final int GAME_DURATION_SECONDS = 180; // Aumento el tiempo de juego para que sea más estratégico
     private static final int MAX_PLAYERS = 20;
     private static final int TOTAL_PAINTINGS = 50;
-    // --- MI NUEVA CONSTANTE ---
-    private static final double MIN_DISTANCE_FROM_OTHERS = 2.5; // Distancia mínima para evitar que se solapen pinturas.
+    private static final double MIN_DISTANCE_FROM_OTHERS = 3.5; // Distancia mínima para evitar que se solapen pinturas.
     private static final Random random = new Random();
 
     // Artes permitidas (mantengo las de tamaño razonable)
@@ -213,7 +216,18 @@ public class DrillManager {
             return;
         }
 
-        Location loc = player.getTargetBlock(null, 5).getRelative(blockFace).getLocation();
+        // --- MI NUEVA VALIDACIÓN DE BLOQUE SÓLIDO ---
+        Block targetBlock = player.getTargetBlock(null, 5);
+        // El método isOccluding() es perfecto porque solo es 'true' para bloques de cubo completo que tapan la visión.
+        // Esto excluye slabs, escaleras, vallas, hierba, etc.
+        if (targetBlock == null || !targetBlock.getType().isOccluding()) {
+            player.sendMessage(ChatColor.RED + "¡Solo puedes colocar pinturas en bloques de pared sólidos y completos!");
+            player.playSound(player.getLocation(), Sound.BLOCK_DISPENSER_FAIL, 1.0f, 1.2f);
+            return;
+        }
+
+
+        Location loc = targetBlock.getRelative(blockFace).getLocation();
         World world = loc.getWorld();
         if (world == null) return;
 
@@ -298,6 +312,23 @@ public class DrillManager {
 
             String finalMessage = String.format(ChatColor.YELLOW + "Colocaste %d pinturas. " + ChatColor.GREEN + "(+%d pts)", entry.getValue().score, pointsWon);
             p.sendTitle(positionMessage, finalMessage, 10, 80, 20);
+
+            // --- CORRECCIÓN DEL BUG DEL SCOREBOARD ---
+            // Después de darle los puntos, necesito refrescar su scoreboard para que lo vea inmediatamente.
+            // Lo ejecuto en el hilo principal de Bukkit para garantizar la seguridad con la API.
+            final Player finalPlayer = p;
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    if (finalPlayer != null && finalPlayer.isOnline()) {
+                        int totalPoints = pointsManager.getTotalPoints(finalPlayer);
+                        int topPosition = pointsManager.getPlayerRank(finalPlayer);
+                        List<PointsManager.PlayerScore> topPlayers = pointsManager.getTopPlayers(3);
+                        // El método showDefaultPage se encarga de todo el trabajo sucio de actualizar el scoreboard.
+                        DeWaltScoreboardManager.showDefaultPage(finalPlayer, topPosition, totalPoints, false, topPlayers);
+                    }
+                }
+            }.runTask(plugin);
         }
 
         // Limpio a todos los jugadores después de un breve momento
