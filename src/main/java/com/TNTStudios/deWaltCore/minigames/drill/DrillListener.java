@@ -1,7 +1,6 @@
 // FILE: src/main/java/com/TNTStudios/deWaltCore/minigames/drill/DrillListener.java
 package com.TNTStudios.deWaltCore.minigames.drill;
 
-import io.th0rgal.oraxen.api.OraxenItems;
 import io.th0rgal.oraxen.api.events.furniture.OraxenFurnitureInteractEvent;
 // Importamos la ruta correcta de la clase FurnitureMechanic que me proporcionaste
 import io.th0rgal.oraxen.mechanics.provided.gameplay.furniture.FurnitureMechanic;
@@ -19,9 +18,9 @@ import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
 /**
- * Mi listener para todos los eventos relacionados con el minijuego del Taladro.
- * Ahora incluye un handler para la interacción con muebles de Oraxen.
- */
+  * Mi listener para todos los eventos relacionados con el minijuego del Taladro.
+  * Ahora toda la lógica compleja está en el DrillManager para mantener el código limpio.
+  */
 public class DrillListener implements Listener {
 
     private final DrillManager drillManager;
@@ -41,8 +40,6 @@ public class DrillListener implements Listener {
         Mechanic mechanic = event.getMechanic();
 
         if (mechanic instanceof FurnitureMechanic furnitureMechanic) {
-            // ========== LA CORRECCIÓN FINAL ==========
-            // El método correcto, según el código fuente que me diste, es getItemID()
             String furnitureId = furnitureMechanic.getItemID();
 
             if ("mesa_de_trabajo".equalsIgnoreCase(furnitureId)) {
@@ -67,6 +64,7 @@ public class DrillListener implements Listener {
 
         if (drillManager.isDrillItem(itemInHand)) {
             event.setCancelled(true);
+            // Toda la lógica de validación ahora vive dentro de este método.
             drillManager.handlePaintingPlace(player, event.getBlockFace());
         }
     }

@@ -7,7 +7,7 @@ import java.util.List;
 
 public class ScoreboardStyle {
 
-    public static final String TITLE = "§6§lDeWalt";
+    public static final String TITLE = "\tᚏ";
 
     // --- MI CAMBIO ---
     // Añado la lista del top como parámetro.
