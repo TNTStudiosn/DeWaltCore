@@ -3,6 +3,8 @@ package com.TNTStudios.deWaltCore.minigames.concrete;
 
 import com.TNTStudios.deWaltCore.DeWaltCore;
 import com.TNTStudios.deWaltCore.points.PointsManager;
+// Importo el ScoreboardManager para poder actualizarlo al final del juego.
+import com.TNTStudios.deWaltCore.scoreboard.DeWaltScoreboardManager;
 import io.th0rgal.oraxen.api.OraxenItems;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
@@ -14,7 +16,10 @@ import org.bukkit.Sound;
 import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Player;
+// Importo los eventos que necesito para la nueva funcionalidad.
+import org.bukkit.event.block.Action;
 import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
@@ -26,11 +31,11 @@ import java.util.stream.Collectors;
 /**
  * Mi manager para el minijuego del Concreto.
  * Se encarga de toda la lógica: lobby, cuenta atrás, puntuación y restauración del mapa.
- * -- OPTIMIZACIÓN PARA ALTO RENDIMIENTO --
- * 1.  Uso de ConcurrentHashMap para gestionar jugadores y bloques de forma segura en entornos multihilo.
- * 2.  La restauración de bloques se hace de forma asíncrona para no impactar el hilo principal.
- * 3.  Las notificaciones (sonidos, actionbar) se envían de forma asíncrona.
- * 4.  Las comprobaciones de ítems y bloques son muy rápidas usando Sets.
+ * -- MEJORAS REALIZADAS --
+ * 1.  Añadida la capacidad de romper bloques con clic derecho para jugadores en modo Aventura.
+ * 2.  El scoreboard ahora se actualiza inmediatamente al finalizar el juego, sin necesidad de reconectar.
+ * 3.  El contador de jugadores ahora es visible en los mensajes de la cuenta atrás del lobby.
+ * 4.  Añadidos comentarios explicativos sobre la lógica de control de jugadores.
  */
 public class ConcreteManager {
 
@@ -76,6 +81,12 @@ public class ConcreteManager {
             player.sendMessage(ChatColor.RED + "¡El minijuego del Concreto ya ha comenzado! Espera a que termine.");
             return;
         }
+
+        // --- MI LÓGICA DE CONTROL DE JUGADORES ---
+        // Me aseguro de que el lobby no supere el máximo de jugadores permitidos.
+        // Si el número de jugadores en el lobby (lobbyPlayers.size()) es mayor o igual
+        // al máximo (MAX_PLAYERS), rechazo al nuevo jugador.
+        // Esto evita que el jugador 21 (o superior) pueda entrar.
         if (lobbyPlayers.size() >= MAX_PLAYERS) {
             player.sendMessage(ChatColor.RED + "¡El lobby está lleno! (" + MAX_PLAYERS + " jugadores).");
             return;
@@ -113,7 +124,10 @@ public class ConcreteManager {
                 }
 
                 if (lobbyTimeLeft % 10 == 0 || lobbyTimeLeft <= 5) {
-                    broadcastToLobby(ChatColor.YELLOW + "El juego comenzará en " + ChatColor.WHITE + lobbyTimeLeft + " segundos...", null);
+                    // --- MI MEJORA: Añado el contador de jugadores al mensaje de la cuenta atrás ---
+                    String message = String.format("%sEl juego comenzará en %s%d segundos... %s(%d/%d jugadores)",
+                            ChatColor.YELLOW, ChatColor.WHITE, lobbyTimeLeft, ChatColor.AQUA, lobbyPlayers.size(), MAX_PLAYERS);
+                    broadcastToLobby(message, null);
                     playSoundForLobby(Sound.BLOCK_NOTE_BLOCK_HAT, 1.0f);
                 }
                 lobbyTimeLeft--;
@@ -141,7 +155,7 @@ public class ConcreteManager {
                 gameScores.put(uuid, 0);
                 p.getInventory().clear();
                 p.getInventory().addItem(hammer.clone());
-                p.sendTitle(ChatColor.GREEN + "¡A ROMPER!", ChatColor.WHITE + "¡Destruye Ladrillos, Granito y Terracota!", 10, 60, 20);
+                p.sendTitle(ChatColor.GREEN + "¡A ROMPER!", ChatColor.WHITE + "¡Usa clic derecho en Ladrillos, Granito y Terracota!", 10, 60, 20);
                 p.playSound(p.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 1.2f);
             }
         }
@@ -165,13 +179,31 @@ public class ConcreteManager {
         }.runTaskTimer(plugin, 0L, 20L);
     }
 
+    /**
+     * Este método prohíbe el 'BlockBreakEvent' (clic izquierdo) normal,
+     * para forzar al jugador a usar la nueva mecánica de clic derecho.
+     */
     public void handleBlockBreak(BlockBreakEvent event) {
         Player player = event.getPlayer();
-        UUID playerUUID = player.getUniqueId();
+        if (isPlayerInGame(player)) {
+            event.setCancelled(true);
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.RED + "¡Debes usar el clic derecho para romper bloques!"));
+        }
+    }
 
-        if (!gameScores.containsKey(playerUUID)) return;
+    /**
+     * MI NUEVO MÉTODO: Maneja el intento de romper un bloque con clic derecho.
+     * Centraliza toda la lógica de validación y puntuación.
+     */
+    public void handleRightClickBreak(PlayerInteractEvent event) {
+        Player player = event.getPlayer();
 
-        event.setCancelled(true); // Siempre cancelamos para controlar todo nosotros
+        // Me aseguro de que el jugador está en el juego y ha hecho clic derecho en un bloque.
+        if (!isPlayerInGame(player) || event.getAction() != Action.RIGHT_CLICK_BLOCK) {
+            return;
+        }
+
+        event.setCancelled(true); // Cancelo la interacción para evitar acciones no deseadas (abrir cofres, etc.).
 
         ItemStack itemInHand = player.getInventory().getItemInMainHand();
         if (!HAMMER_ITEM_ID.equals(OraxenItems.getIdByItem(itemInHand))) {
@@ -179,8 +211,8 @@ public class ConcreteManager {
             return;
         }
 
-        Block block = event.getBlock();
-        if (TARGET_BLOCKS.contains(block.getType())) {
+        Block block = event.getClickedBlock();
+        if (block != null && TARGET_BLOCKS.contains(block.getType())) {
             // Guardamos el estado original del bloque antes de romperlo
             brokenBlocks.putIfAbsent(block.getLocation(), block.getBlockData());
 
@@ -189,9 +221,10 @@ public class ConcreteManager {
             player.playSound(player.getLocation(), Sound.BLOCK_STONE_BREAK, 1.0f, 1.0f);
 
             // Actualizamos la puntuación
-            gameScores.computeIfPresent(playerUUID, (uuid, score) -> score + 1);
+            gameScores.computeIfPresent(player.getUniqueId(), (uuid, score) -> score + 1);
         }
     }
+
 
     // --- 3. FINALIZACIÓN Y LIMPIEZA ---
 
@@ -206,7 +239,6 @@ public class ConcreteManager {
                 .sorted(Map.Entry.<UUID, Integer>comparingByValue().reversed())
                 .collect(Collectors.toList());
 
-        // Damos un pequeño delay para que vean el mensaje de fin antes de los resultados
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -247,6 +279,21 @@ public class ConcreteManager {
                     pointsManager.addPoints(p, pointsWon, "concrete_minigame", "Ranking final del minijuego");
                     String finalMessage = String.format(ChatColor.YELLOW + "Rompiste %d bloques. " + ChatColor.GREEN + "(+%d pts)", entry.getValue(), pointsWon);
                     p.sendTitle(positionMessage, finalMessage, 10, 80, 20);
+
+                    // --- MI SOLUCIÓN: Actualizo el scoreboard en el hilo principal ---
+                    // Después de dar los puntos, necesito refrescar el scoreboard para que el jugador vea el cambio al instante.
+                    final Player finalPlayer = p;
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            if (finalPlayer.isOnline()) {
+                                int totalPoints = pointsManager.getTotalPoints(finalPlayer);
+                                int topPosition = pointsManager.getPlayerRank(finalPlayer);
+                                List<PointsManager.PlayerScore> topPlayers = pointsManager.getTopPlayers(3);
+                                DeWaltScoreboardManager.showDefaultPage(finalPlayer, topPosition, totalPoints, false, topPlayers);
+                            }
+                        }
+                    }.runTask(plugin);
                 }
             }
         }.runTaskAsynchronously(plugin);
@@ -255,14 +302,12 @@ public class ConcreteManager {
     private void restoreBrokenBlocks() {
         if (brokenBlocks.isEmpty()) return;
 
-        // Copiamos el mapa para trabajar de forma segura en un hilo asíncrono
         Map<Location, BlockData> blocksToRestore = new HashMap<>(brokenBlocks);
         brokenBlocks.clear();
 
         new BukkitRunnable() {
             @Override
             public void run() {
-                // La restauración se hace en el hilo principal para evitar problemas con la API de Bukkit
                 new BukkitRunnable() {
                     @Override
                     public void run() {
@@ -280,8 +325,6 @@ public class ConcreteManager {
 
         lobbyPlayers.clear();
         gameScores.clear();
-        // brokenBlocks ya se limpió en restoreBrokenBlocks
-
         currentState = GameState.INACTIVE;
     }
 
