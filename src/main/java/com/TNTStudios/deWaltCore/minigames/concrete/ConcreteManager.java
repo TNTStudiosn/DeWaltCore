@@ -229,7 +229,7 @@ public class ConcreteManager {
     Player player = event.getPlayer();
     if (isPlayerInGame(player)) {
       event.setCancelled(true);
-      player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.RED + "¡Debes usar el clic derecho para romper bloques!"));
+      player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.RED + "¡Debes usar el clic derecho para romper bloques! Solo puedes romper: Ladrillos, Granito, Terracota"));
     }
   }
 
