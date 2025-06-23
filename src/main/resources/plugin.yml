@@ -9,11 +9,9 @@ depend: [Oraxen]
 commands:
   empezar:
     description: Inicia el minijuego del laberinto.
-    usage: /empezar
   detener:
-    description: Finaliza el minijuego del laberinto.
-    usage: /detener
-  # --- MI NUEVO COMANDO ---
+    description: Detiene el minijuego del laberinto.
   taladro:
-    description: Inicia el minijuego del taladro.
-    usage: /taladro
+    description: Entra al lobby del minijuego del taladro.
+  concreto:
+    description: Entra al lobby del minijuego del concreto.
