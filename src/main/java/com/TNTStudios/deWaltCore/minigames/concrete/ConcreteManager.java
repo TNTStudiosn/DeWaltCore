@@ -78,7 +78,7 @@ public class ConcreteManager {
 
     // --- CONSTANTES DEL MINIJUEGO DE RUPTURA ---
     private static final int BREAK_MINIGAME_DURATION_TICKS = 30;
-    private static final int BREAK_SUCCESS_START_TICK = 12;
+    private static final int BREAK_SUCCESS_START_TICK = 18;
     private static final int BREAK_SUCCESS_END_TICK = 24;
     private static final long BREAK_COOLDOWN_MS = 200L;
 
@@ -262,6 +262,12 @@ public class ConcreteManager {
 
         Block block = event.getClickedBlock();
         if (block != null && TARGET_BLOCKS.contains(block.getType())) {
+            // Me aseguro de que el bloque no haya sido roto ya en esta partida.
+            // Aunque la comprobación de Material.AIR debería ser suficiente, esta es una capa extra de seguridad.
+            if (brokenBlocks.containsKey(block.getLocation())) {
+                return;
+            }
+
             if (targettedBlocks.contains(block.getLocation())) {
                 player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.YELLOW + "Alguien ya está rompiendo ese bloque."));
                 return;
@@ -476,6 +482,8 @@ public class ConcreteManager {
         private final Block block;
         private final UUID playerUUID;
         private int progress = 0;
+        // MI CORRECCIÓN: Añado una bandera para asegurar que el intento solo se resuelva una vez.
+        private boolean resolved = false;
 
         BlockBreakingAttempt(Player player, Block block) {
             this.player = player;
@@ -488,16 +496,27 @@ public class ConcreteManager {
          * @return `true` si el intento debe continuar, `false` si ha terminado.
          */
         boolean tick() {
-            if (progress > BREAK_MINIGAME_DURATION_TICKS) {
-                fail("¡Demasiado lento!");
+            // MI CORRECCIÓN: Si el intento ya se resolvió, le digo al manager que lo elimine.
+            if (resolved) {
                 return false;
             }
+
+            if (progress > BREAK_MINIGAME_DURATION_TICKS) {
+                fail("¡Demasiado lento!");
+                return false; // fail() ahora marca como resuelto y esto elimina la tarea del manager.
+            }
+
             displayProgressBar();
             progress++;
             return true;
         }
 
         void tryResolve() {
+            // MI CORRECCIÓN: Si ya se resolvió, ignoro este y los siguientes clics.
+            if (resolved) {
+                return;
+            }
+
             if (progress >= BREAK_SUCCESS_START_TICK && progress <= BREAK_SUCCESS_END_TICK) {
                 succeed();
             } else {
@@ -506,6 +525,10 @@ public class ConcreteManager {
         }
 
         private void succeed() {
+            // MI CORRECCIÓN: Una doble comprobación por seguridad.
+            if (resolved) return;
+            this.resolved = true; // Marco como resuelto INMEDIATAMENTE para evitar duplicados.
+
             this.cancelCleanup();
             playerBreakCooldowns.put(playerUUID, System.currentTimeMillis());
             brokenBlocks.putIfAbsent(block.getLocation(), block.getBlockData());
@@ -516,6 +539,10 @@ public class ConcreteManager {
         }
 
         private void fail(String reason) {
+            // MI CORRECCIÓN: También aplico la misma lógica de bloqueo aquí.
+            if (resolved) return;
+            this.resolved = true;
+
             this.cancelCleanup();
             player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_LAND, 0.5f, 1.5f);
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.RED + reason));
