@@ -72,7 +72,7 @@ public class ConcreteManager {
           private static final int BLOCKS_TO_RESTORE_PER_TICK = 300; // Un valor seguro para no causar lag
 
   // --- ZONAS DEL MINIJUEGO ---
-          private static final Location LOBBY_SPAWN_LOCATION = new Location(Bukkit.getWorld("DeWALTConcreto"), 9.48, 117.00, -3.23, 90, 0);
+  private static final Location LOBBY_SPAWN_LOCATION = new Location(Bukkit.getWorld("DeWALTConcreto"), 9.48, 117.00, -3.23, 90, 0);
   private static final Location GAME_SPAWN_LOCATION = new Location(Bukkit.getWorld("DeWALTConcreto"), 9.48, 117.00, -3.23, 90, 0);
   private static final Location SAFE_EXIT_LOCATION = new Location(Bukkit.getWorld("DEWALT LOBBY"), -2.13, 78.00, 0.44, 90, 0);
 
