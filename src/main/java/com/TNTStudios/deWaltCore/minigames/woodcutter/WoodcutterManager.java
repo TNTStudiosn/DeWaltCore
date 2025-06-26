@@ -62,8 +62,8 @@ public class WoodcutterManager {
     private static final int MIN_PLAYERS = 1;
     private static final int MAX_PLAYERS = 20;
     private static final int LOBBY_DURATION_SECONDS = 60;
-    private static final int GAME_DURATION_SECONDS = 300; // 5 minutos
-    private static final long AXE_MINIGAME_COOLDOWN_MS = 200L; // Cooldown de 0.2 segundos
+    private static final int GAME_DURATION_SECONDS = 500;
+    private static final long AXE_MINIGAME_COOLDOWN_MS = 200L;
 
     // --- IDs DE ITEMS Y BLOQUES (extraídos de tus instrucciones) ---
     private static final Material WOODCUTTER_AXE_MATERIAL = Material.IRON_AXE;
@@ -686,13 +686,13 @@ public class WoodcutterManager {
         private int playerSequencePosition = 0;
         private boolean playerTurn = false;
 
-        private final Material[] colors = {Material.LIME_STAINED_GLASS_PANE, Material.RED_STAINED_GLASS_PANE, Material.BLUE_STAINED_GLASS_PANE, Material.YELLOW_STAINED_GLASS_PANE, Material.ORANGE_STAINED_GLASS_PANE};
+        private final Material[] colors = {Material.LIME_STAINED_GLASS_PANE, Material.PURPLE_STAINED_GLASS_PANE, Material.BLUE_STAINED_GLASS_PANE, Material.YELLOW_STAINED_GLASS_PANE, Material.ORANGE_STAINED_GLASS_PANE};
         private final int[] slots = {11, 12, 13, 14, 15};
         private static final int TOTAL_ROUNDS = 5;
 
         CutterMinigame(Player player) {
             this.player = player;
-            this.inventory = Bukkit.createInventory(null, 27, "§8CORTADORA: Sigue la secuencia");
+            this.inventory = Bukkit.createInventory(null, 27, "§fCORTADORA: Sigue la secuencia");
         }
 
         @Override
@@ -825,7 +825,7 @@ public class WoodcutterManager {
 
         HammerMinigame(Player player) {
             this.player = player;
-            this.inventory = Bukkit.createInventory(null, 27, "§8ENSAMBLAJE: ¡Clava rápido!");
+            this.inventory = Bukkit.createInventory(null, 27, "§fENSAMBLAJE: ¡Clava rápido!");
         }
 
         @Override
