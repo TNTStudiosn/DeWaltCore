@@ -12,8 +12,10 @@ import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -54,12 +56,14 @@ public class WoodcutterManager {
 
     // Uso un mapa para gestionar cualquier minijuego activo de un jugador.
     private final Map<UUID, Minigame> activeMinigames = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> axeCooldowns = new ConcurrentHashMap<>();
 
     // --- CONSTANTES DE CONFIGURACIÓN DEL MINIJUEGO ---
     private static final int MIN_PLAYERS = 1;
     private static final int MAX_PLAYERS = 20;
     private static final int LOBBY_DURATION_SECONDS = 60;
     private static final int GAME_DURATION_SECONDS = 300; // 5 minutos
+    private static final long AXE_MINIGAME_COOLDOWN_MS = 200L; // Cooldown de 0.2 segundos
 
     // --- IDs DE ITEMS Y BLOQUES (extraídos de tus instrucciones) ---
     private static final Material WOODCUTTER_AXE_MATERIAL = Material.IRON_AXE;
@@ -265,6 +269,11 @@ public class WoodcutterManager {
         PlayerData data = gamePlayers.get(playerUUID);
         ItemStack itemInHand = player.getInventory().getItemInMainHand();
 
+        long now = System.currentTimeMillis();
+        if (now - axeCooldowns.getOrDefault(player.getUniqueId(), 0L) < AXE_MINIGAME_COOLDOWN_MS) {
+            return; // Si el cooldown está activo, no hacemos nada.
+        }
+
         if (data.currentStage == PlayerStage.COLLECTING_LOGS &&
                 itemInHand.getType() == WOODCUTTER_AXE_MATERIAL &&
                 event.getClickedBlock() != null &&
@@ -329,6 +338,7 @@ public class WoodcutterManager {
     }
 
     private void completeMinigame(Player player, boolean success, PlayerStage minigameStage) {
+        axeCooldowns.put(player.getUniqueId(), System.currentTimeMillis());
         activeMinigames.remove(player.getUniqueId());
         if (!isPlayerInGame(player)) return;
 
@@ -589,7 +599,6 @@ public class WoodcutterManager {
             }.runTaskTimer(plugin, 0L, 1L);
         }
 
-        // El intento se resuelve con el siguiente clic derecho del jugador.
         public void resolveAttempt() {
             if (resolved) return; // Evito múltiples resoluciones.
             if (progress >= SUCCESS_START_TICK && progress <= SUCCESS_END_TICK) succeed();
@@ -620,29 +629,39 @@ public class WoodcutterManager {
         }
 
         private void displayProgressBar() {
-            if (!player.isOnline()) { fail(); return; }
+            if (!player.isOnline()) {
+                fail();
+                return;
+            }
+
             StringBuilder bar = new StringBuilder();
             int totalChars = 30;
-            // Dibujo la barra: zona roja, zona verde, zona roja.
             int greenStart = (int) (totalChars * ((double) SUCCESS_START_TICK / DURATION_TICKS));
             int greenEnd = (int) (totalChars * ((double) SUCCESS_END_TICK / DURATION_TICKS));
+            int markerPos = (int) (totalChars * ((double) progress / DURATION_TICKS));
+            markerPos = Math.min(totalChars - 1, markerPos);
 
             for (int i = 0; i < totalChars; i++) {
-                if (i >= greenStart && i <= greenEnd) {
-                    bar.append("§a|");
+                if (i == markerPos) {
+                    bar.append("§f§lX");
                 } else {
-                    bar.append("§c|");
+                    if (i >= greenStart && i <= greenEnd) {
+                        bar.append("§a|"); // Zona de éxito
+                    } else {
+                        bar.append("§c|"); // Zona de fallo
+                    }
                 }
             }
-            // Coloco el marcador de progreso.
-            int markerPos = (int) (totalChars * ((double) progress / DURATION_TICKS));
-            if (markerPos < totalChars && markerPos >= 0) bar.replace(markerPos, markerPos + 1, "§f§lX");
-
             player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(bar.toString()));
         }
 
         @Override
         public void onPlayerInteract(PlayerInteractEvent event) {
+            // SOLUCIÓN: Se comprueba que el evento provenga de la mano principal para evitar dobles ejecuciones.
+            if (event.getHand() != EquipmentSlot.HAND) {
+                return;
+            }
+
             // Este minijuego se resuelve con un clic derecho en el aire o en un bloque.
             if (event.getAction().name().contains("RIGHT_CLICK")) {
                 event.setCancelled(true);
