@@ -3,7 +3,7 @@ name: DeWaltCore
 version: 1.0
 main: com.TNTStudios.deWaltCore.DeWaltCore
 api-version: 1.19
-author: TuNombre
+author: TNTStudios
 depend: [Oraxen]
 
 commands:
@@ -15,3 +15,6 @@ commands:
     description: Entra al lobby del minijuego del taladro.
   concreto:
     description: Entra al lobby del minijuego del concreto.
+  madera:
+    description: Te lleva al minijuego de la Cortadora de Madera.
+    usage: /madera

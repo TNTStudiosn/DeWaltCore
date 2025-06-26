@@ -15,12 +15,16 @@ import com.TNTStudios.deWaltCore.points.PointsManager;
 import com.TNTStudios.deWaltCore.scoreboard.ScoreboardListener;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
+import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterCommand;
+import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterListener;
+import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterManager;
 
 public final class DeWaltCore extends JavaPlugin {
 
     private static PointsManager pointsManager;
     private MazeManager mazeManager;
     private DrillManager drillManager;
+    private WoodcutterManager woodcutterManager;
     // --- MI NUEVO MANAGER ---
     private ConcreteManager concreteManager;
 
@@ -35,7 +39,7 @@ public final class DeWaltCore extends JavaPlugin {
         drillManager = new DrillManager(this, pointsManager);
         // Inicializo mi nuevo manager del concreto
         concreteManager = new ConcreteManager(this, pointsManager);
-
+        woodcutterManager = new WoodcutterManager(this, pointsManager);
 
         // --- Comandos ---
         // Laberinto
@@ -51,12 +55,15 @@ public final class DeWaltCore extends JavaPlugin {
         ConcreteCommand concreteCommand = new ConcreteCommand(concreteManager);
         getCommand("concreto").setExecutor(concreteCommand);
 
+        WoodcutterCommand woodcutterCommand = new WoodcutterCommand(woodcutterManager);
+        getCommand("madera").setExecutor(woodcutterCommand);
+
 
         // --- Listeners ---
         getServer().getPluginManager().registerEvents(new MinigameListener(mazeManager), this);
         getServer().getPluginManager().registerEvents(new DrillListener(drillManager), this);
-        // Registro el nuevo listener para el concreto
         getServer().getPluginManager().registerEvents(new ConcreteListener(concreteManager), this);
+        getServer().getPluginManager().registerEvents(new WoodcutterListener(woodcutterManager), this);
 
         // Tarea periódica para guardar el leaderboard de forma segura.
         new BukkitRunnable() {
