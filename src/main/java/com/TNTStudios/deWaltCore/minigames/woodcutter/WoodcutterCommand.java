@@ -8,7 +8,7 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 /**
- * Mi comando /madera para unirse al minijuego de la Cortadora
+ * Mi comando /madera para unirse al minijuego de la Cortadora.
  */
 public class WoodcutterCommand implements CommandExecutor {
 

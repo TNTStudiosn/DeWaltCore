@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * Mi manager para el minijuego Cortadora de Madera.
+ * Mi manager para el minijuego Cortadora de Madera
  * Se encarga de toda la lógica: lobby, etapas, minijuegos interactivos, puntuación y reinicio.
  * Esta versión está completamente reparada y mejorada, con minijuegos reales y una lógica de
  * progresión clara, optimizada para un alto rendimiento en servidores con muchos jugadores.

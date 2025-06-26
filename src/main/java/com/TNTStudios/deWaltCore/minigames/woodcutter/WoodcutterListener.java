@@ -37,7 +37,7 @@ public class WoodcutterListener implements Listener {
     }
 
     /**
-     * Handler para la interacción con los muebles de Oraxen
+     * Handler para la interacción con los muebles de Oraxen.
      * Se usa para las mesas de corte y ensamblaje.
      */
     @EventHandler
