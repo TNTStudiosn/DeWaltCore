@@ -11,6 +11,9 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 import java.util.logging.Level;
 
@@ -26,7 +29,7 @@ public class RegistrationManager {
 
     // Defino las ubicaciones exactas que me pediste.
     private static final Location UNREGISTERED_SPAWN = new Location(Bukkit.getWorld("DEWALT LOBBY"), -277.58, -29.00, 0.63, 90, 0);
-    private static final Location REGISTERED_SPAWN = new Location(Bukkit.getWorld("DEWALT LOBBY"), -2.13, 78.00, 0.44, 270, 0);
+    private static final Location REGISTERED_SPAWN = new Location(Bukkit.getWorld("DEWALT LOBBY"), -2.13, 78.00, 0.44, 90, 0);
 
     public RegistrationManager(DeWaltCore plugin) {
         this.plugin = plugin;
@@ -76,23 +79,38 @@ public class RegistrationManager {
      * Guardo los datos de registro de un jugador en su archivo .yml.
      * OPTIMIZADO: La escritura del archivo se hace en un hilo secundario
      * para no afectar el rendimiento del servidor.
-     * @param playerUUID La UUID del jugador.
+     * Ahora acepto el objeto Player completo para acceder a su nombre.
+     * @param player El jugador a registrar.
      * @param email El correo electrónico a guardar.
      */
-    public void registerPlayer(UUID playerUUID, String email) {
+    public void registerPlayer(Player player, String email) {
         new BukkitRunnable() {
             @Override
             public void run() {
+                UUID playerUUID = player.getUniqueId();
+                String playerName = player.getName();
+
                 File playerFile = new File(registrationFolder, playerUUID.toString() + ".yml");
                 FileConfiguration playerData = YamlConfiguration.loadConfiguration(playerFile);
 
                 try {
+                    // Ahora guardo todos los datos importantes para una mejor gestión.
+                    playerData.set("uuid", playerUUID.toString());
+                    playerData.set("username", playerName);
                     playerData.set("email", email);
-                    // Podríamos añadir más datos aquí en el futuro, como la fecha de registro.
-                    playerData.set("registration_timestamp", System.currentTimeMillis());
+
+                    long timestamp = System.currentTimeMillis();
+                    playerData.set("registration_timestamp", timestamp);
+
+                    // Añado una versión legible de la fecha para facilitar la revisión manual de los archivos.
+                    String readableDate = Instant.ofEpochMilli(timestamp)
+                            .atZone(ZoneId.systemDefault()) // O una zona horaria específica como "America/Mexico_City"
+                            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"));
+                    playerData.set("registration_date", readableDate);
+
                     playerData.save(playerFile);
                 } catch (IOException e) {
-                    plugin.getLogger().log(Level.SEVERE, "¡ERROR CRÍTICO! No pude guardar el archivo de registro para " + playerUUID, e);
+                    plugin.getLogger().log(Level.SEVERE, "¡ERROR CRÍTICO! No pude guardar el archivo de registro para " + playerName + " (" + playerUUID + ")", e);
                 }
             }
         }.runTaskAsynchronously(plugin);

@@ -28,7 +28,6 @@ public class RegistrationListener implements Listener {
 
     public RegistrationListener(RegistrationManager registrationManager) {
         this.registrationManager = registrationManager;
-        // Ya no necesito pasar el EmailValidator, usaré su método estático directamente.
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -77,8 +76,10 @@ public class RegistrationListener implements Listener {
 
         // El formato es correcto, procedo a registrarlo.
         pendingRegistration.remove(playerUUID);
-        registrationManager.registerPlayer(playerUUID, email);
-        player.sendMessage(ChatColor.GREEN + "¡Registro completado con éxito! Gracias por unirte.");
+        // --- ¡ESTE ES EL ÚNICO CAMBIO NECESARIO AQUÍ! ---
+        // Ahora paso el objeto 'player' completo en lugar de solo su UUID.
+        registrationManager.registerPlayer(player, email);
+        player.sendMessage(ChatColor.GREEN + "¡Registro completado con éxito! Gracias por unirte. Ya puedes moverte");
 
     }
 
