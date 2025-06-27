@@ -73,7 +73,7 @@ public class WoodcutterManager {
     private static final String HAMMER_ITEM_ID = "martillo";
     private static final String CUTTER_TABLE_ID = "mesa_cortadora";
     private static final String ASSEMBLY_TABLE_ID = "mesa_vacia";
-
+    private static final String ORAXEN_HELMET_ID = "casco";
     // --- ZONAS DEL MINIJUEGO ---
     // Nota: Asegúrate de que estos mundos estén cargados.
     private static final Location LOBBY_SPAWN_LOCATION = new Location(Bukkit.getWorld("DeWALTCortaMadera"), 29.34, 1.00, 34, 90, 0);
@@ -514,58 +514,83 @@ public class WoodcutterManager {
     private void awardPointsAndShowResults(Map<UUID, PlayerData> finalScores) {
         if (finalScores.isEmpty()) return;
 
-        // --- MI CORRECCIÓN (INICIO) ---
-        // 1. Guardo el estado del Top 3 ANTES de dar los puntos para compararlo después.
-        final List<PointsManager.PlayerScore> topBefore = pointsManager.getTopPlayers(3);
-
+        // Ordeno a los jugadores de mayor a menor puntuación. La forma en que lo hacías ya era correcta.
         final List<Map.Entry<UUID, PlayerData>> sortedPlayers = finalScores.entrySet().stream()
                 .sorted(Map.Entry.<UUID, PlayerData>comparingByValue(Comparator.comparingInt(d -> d.score)).reversed())
                 .collect(Collectors.toList());
 
-        StringBuilder resultsMessage = new StringBuilder();
-        resultsMessage.append("\n§6--- Resultados de Cortadora de Madera ---\n");
-        for (int i = 0; i < sortedPlayers.size() && i < 3; i++) {
-            Map.Entry<UUID, PlayerData> entry = sortedPlayers.get(i);
-            Player p = Bukkit.getPlayer(entry.getKey());
-            String name = (p != null) ? p.getName() : "Jugador Desc.";
-            String color = i == 0 ? "§e" : (i == 1 ? "§7" : "§c");
-            resultsMessage.append(String.format("%s#%d %s - %d mesas\n", color, i + 1, name, entry.getValue().score));
-        }
-        resultsMessage.append("§6--------------------------------------\n");
-        String finalResults = resultsMessage.toString();
+        final List<PointsManager.PlayerScore> topBefore = pointsManager.getTopPlayers(3);
 
-        // 2. Reparto los puntos y envío los mensajes de resultados a los que jugaron.
+        // 1. Construyo el mensaje del Top 3 (o más si hay empates) para enviarlo a todos.
+        StringBuilder topMessage = new StringBuilder("\n§6--- Resultados de Cortadora de Madera ---\n");
+        int lastScore = -1;
+        int rank = 0;
+        for (int i = 0; i < sortedPlayers.size(); i++) {
+            Map.Entry<UUID, PlayerData> entry = sortedPlayers.get(i);
+            int currentScore = entry.getValue().score;
+
+            // Si la puntuación actual es diferente a la del jugador anterior, actualizo el puesto.
+            // Si es la misma, mantienen el mismo puesto (manejo de empate).
+            if (currentScore != lastScore) {
+                rank = i + 1;
+            }
+
+            // Solo me interesa mostrar los 3 primeros puestos en el podio.
+            if (rank <= 3) {
+                Player p = Bukkit.getPlayer(entry.getKey());
+                String name = (p != null) ? p.getName() : "Jugador Desc.";
+                String color = rank == 1 ? "§e" : (rank == 2 ? "§7" : "§c");
+                // Aquí uso "mesas", como en tu lógica de puntuación. Si prefieres "pinturas", solo cambia la palabra.
+                topMessage.append(String.format("%s#%d %s - %d mesas\n", color, rank, name, currentScore));
+            }
+            lastScore = currentScore;
+        }
+        topMessage.append("§6--------------------------------------\n");
+        String finalTopMessage = topMessage.toString();
+
+        // 2. Ahora itero de nuevo para asignar puntos y enviar mensajes personalizados.
+        lastScore = -1;
+        rank = 0;
         for (int i = 0; i < sortedPlayers.size(); i++) {
             Map.Entry<UUID, PlayerData> entry = sortedPlayers.get(i);
             Player p = Bukkit.getPlayer(entry.getKey());
             if (p == null || !p.isOnline()) continue;
 
-            int pointsWon = (i == 0) ? 15 : (i == 1) ? 7 : (i == 2) ? 3 : 1;
-            // Aquí es donde PointsManager actualiza los datos y el caché interno del leaderboard.
+            int currentScore = entry.getValue().score;
+            if (currentScore != lastScore) {
+                rank = i + 1; // Actualizo el rango basado en la posición en la lista ordenada.
+            }
+
+            int pointsWon = switch (rank) {
+                case 1 -> 15;
+                case 2 -> 7;
+                case 3 -> 3;
+                default -> 1; // El resto gana 1 punto por participar.
+            };
+
             pointsManager.addPoints(p, pointsWon, "woodcutter_minigame", "Ranking final");
 
-            p.sendMessage(finalResults);
-            p.sendMessage(String.format("§aTu posición: #%d. Has ganado §e%d puntos§a.", i + 1, pointsWon));
+            // Le envío el podio general...
+            p.sendMessage(finalTopMessage);
+            // ...y su resultado personal detallado.
+            p.sendMessage(String.format("§aQuedaste en la posición #%d con %d mesas. ¡Ganaste §e%d puntos§a!", rank, currentScore, pointsWon));
+
+            lastScore = currentScore;
         }
 
-        // 3. Obtengo el estado del Top 3 DESPUÉS de dar los puntos.
+        // La lógica para actualizar el scoreboard global ya estaba bien, así que la mantengo intacta.
         final List<PointsManager.PlayerScore> topAfter = pointsManager.getTopPlayers(3);
-
-        // 4. Ejecuto la actualización del scoreboard en el hilo principal para máxima seguridad.
         new BukkitRunnable() {
             @Override
             public void run() {
-                // 5. Comparo si el Top 3 cambió. Si es así, actualizo el scoreboard para TODOS.
                 if (!topBefore.equals(topAfter)) {
                     plugin.getLogger().info("El Top 3 ha cambiado. Actualizando scoreboard para todos los jugadores online...");
                     for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
-                        if (onlinePlayer.isOnline()) { // Doble chequeo por si se desconectan durante el bucle
+                        if (onlinePlayer.isOnline()) {
                             updatePlayerScoreboard(onlinePlayer, topAfter);
                         }
                     }
                 } else {
-                    // Si el Top 3 no cambió, solo actualizo el scoreboard de los que jugaron,
-                    // ya que su puntuación personal sí cambió.
                     for (Map.Entry<UUID, PlayerData> entry : sortedPlayers) {
                         Player p = Bukkit.getPlayer(entry.getKey());
                         if (p != null && p.isOnline()) {
@@ -575,7 +600,6 @@ public class WoodcutterManager {
                 }
             }
         }.runTask(plugin);
-        // --- MI CORRECCIÓN (FIN) ---
     }
 
 // --- MI NUEVO MÉTODO DE AYUDA (Añádelo al final de la clase WoodcutterManager) ---
@@ -629,23 +653,95 @@ public class WoodcutterManager {
 
     public void handlePlayerQuit(Player player) {
         UUID uuid = player.getUniqueId();
-        if (activeMinigames.containsKey(uuid)) {
-            activeMinigames.get(uuid).cancel();
-            activeMinigames.remove(uuid);
+        boolean wasInLobby = lobbyPlayers.remove(uuid);
+
+        if (wasInLobby) {
+            broadcastToLobby(ChatColor.YELLOW + player.getName() + " ha salido de la cola.");
+            // Si el lobby se queda sin suficientes jugadores, cancelo la cuenta atrás.
+            if (currentState == GameState.LOBBY && lobbyPlayers.size() < MIN_PLAYERS) {
+                broadcastToLobby(ChatColor.RED + "No hay suficientes jugadores. Se canceló el inicio.");
+                resetGame(); // resetGame ya cancela el task.
+            }
         }
-        lobbyPlayers.remove(uuid);
+
         if (gamePlayers.containsKey(uuid)) {
+            // Cancelo cualquier minijuego activo que tuviera
+            if (activeMinigames.containsKey(uuid)) {
+                activeMinigames.get(uuid).cancel();
+                activeMinigames.remove(uuid);
+            }
             gamePlayers.remove(uuid);
             BossBar bossBar = playerBossBars.remove(uuid);
-            if (bossBar != null) bossBar.removeAll();
+            if (bossBar != null) {
+                bossBar.removeAll();
+            }
             broadcastToGame(ChatColor.YELLOW + player.getName() + " ha abandonado la partida.");
-            if(gamePlayers.isEmpty() && currentState == GameState.RUNNING){
+            if (currentState == GameState.RUNNING && gamePlayers.isEmpty()) {
                 endGame("Todos los jugadores se han ido");
             }
         }
     }
 
+    /**
+     * Mi nuevo método para sacar a un jugador que está online.
+     * Realiza todas las acciones necesarias como enviarle mensajes, limpiar su inventario y teletransportarlo.
+     * @param player El jugador a eliminar.
+     * @param reason La razón por la que se le elimina.
+     * @param teleportToSafeZone Si debe ser teletransportado a la zona segura.
+     */
+    public void removeOnlinePlayer(Player player, String reason, boolean teleportToSafeZone) {
+        if (!isPlayerParticipating(player)) return;
+
+        // 1. Ejecuto la lógica de limpieza de datos primero.
+        handlePlayerQuit(player);
+
+        // 2. Ahora, realizo acciones en el jugador que sigue online.
+        player.sendMessage(ChatColor.RED + "Has salido del minijuego. Razón: " + reason);
+        clearInventorySafely(player);
+        player.setGameMode(GameMode.SURVIVAL); // O el modo de juego por defecto del lobby
+
+        if (teleportToSafeZone) {
+            player.teleport(SAFE_EXIT_LOCATION);
+        }
+    }
+
+    /**
+     * Mi nuevo método seguro para limpiar el inventario de un jugador.
+     * Borra todo excepto el casco de Oraxen con el ID 'casco'.
+     * @param player El jugador cuyo inventario será limpiado.
+     */
+    private void clearInventorySafely(Player player) {
+        // Guardo el casco si es el correcto
+        ItemStack helmet = player.getInventory().getHelmet();
+        boolean keepHelmet = false;
+        if (helmet != null) {
+            String oraxenId = OraxenItems.getIdByItem(helmet);
+            if (ORAXEN_HELMET_ID.equals(oraxenId)) {
+                keepHelmet = true;
+            }
+        }
+
+        // Limpio el inventario principal y la armadura. player.getInventory().clear() hace todo esto.
+        player.getInventory().clear();
+
+        // Si tenía el casco correcto, se lo devuelvo.
+        if (keepHelmet) {
+            player.getInventory().setHelmet(helmet);
+        }
+    }
+
+
     // --- 7. MÉTODOS DE UTILIDAD ---
+
+    /**
+     * Mi comprobador para saber si un jugador está en el lobby o en el juego.
+     * @param player El jugador a comprobar.
+     * @return true si está participando.
+     */
+    public boolean isPlayerParticipating(Player player) {
+        UUID uuid = player.getUniqueId();
+        return lobbyPlayers.contains(uuid) || gamePlayers.containsKey(uuid);
+    }
 
     public boolean isPlayerInGame(Player player) {
         return gamePlayers.containsKey(player.getUniqueId());

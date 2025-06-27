@@ -3,6 +3,7 @@ package com.TNTStudios.deWaltCore.minigames.woodcutter;
 
 import io.th0rgal.oraxen.api.events.furniture.OraxenFurnitureInteractEvent;
 import io.th0rgal.oraxen.mechanics.provided.gameplay.furniture.FurnitureMechanic;
+import org.bukkit.ChatColor;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -75,5 +76,35 @@ public class WoodcutterListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         // Me aseguro de que el jugador salga del juego si estaba participando.
         woodcutterManager.handlePlayerQuit(event.getPlayer());
+    }
+
+    /**
+     * Mi handler para evitar que los jugadores tiren ítems durante el minijuego.
+     * Así me aseguro de que no pierdan objetos clave ni ensucien el mapa.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerDropItem(org.bukkit.event.player.PlayerDropItemEvent event) {
+        // Si el jugador está en el lobby o en el juego, cancelo el evento.
+        if (woodcutterManager.isPlayerParticipating(event.getPlayer())) {
+            event.setCancelled(true);
+            event.getPlayer().sendMessage(ChatColor.RED + "No puedes soltar ítems durante el minijuego.");
+        }
+    }
+
+    /**
+     * Mi handler para detectar cuando un jugador usa un comando de teletransporte.
+     * Si está en el minijuego, lo saco para evitar conflictos.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlayerCommand(org.bukkit.event.player.PlayerCommandPreprocessEvent event) {
+        Player player = event.getPlayer();
+        // Defino una lista de comandos que fuerzan la salida. Uso un Set para que la comprobación sea instantánea.
+        final java.util.Set<String> teleportCommands = java.util.Set.of("/spawn", "/lobby", "/hub");
+        String command = event.getMessage().toLowerCase().split(" ")[0];
+
+        if (teleportCommands.contains(command) && woodcutterManager.isPlayerParticipating(player)) {
+            // El comando lo teletransportará, así que solo necesito que el manager lo elimine de las listas del juego.
+            woodcutterManager.removeOnlinePlayer(player, "Uso de comando de teletransporte", false);
+        }
     }
 }
