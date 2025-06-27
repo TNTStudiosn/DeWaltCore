@@ -24,11 +24,13 @@ public class BoltCutterMinigame {
     private BukkitTask task;
     private int progress = 0;
     private boolean resolved = false;
+    private boolean acceptingInput = false; // Mi nuevo flag para controlar el input y evitar doble-clicks.
 
     // Defino los parámetros del minijuego.
     private static final int DURATION_TICKS = 40; // 2 segundos de duración total.
     private static final int SUCCESS_START_TICK = 25; // Inicio de la zona verde.
     private static final int SUCCESS_END_TICK = 30; // Fin de la zona verde.
+    private static final int INPUT_DELAY_TICKS = 4; // Mi pequeño delay de 4 ticks (0.2s) para registrar el click.
 
     public BoltCutterMinigame(Player player, Consumer<Boolean> onComplete) {
         this.player = player;
@@ -48,6 +50,11 @@ public class BoltCutterMinigame {
     private void tick() {
         if (resolved) return;
 
+        // Una vez que pasa el delay inicial, permito que el jugador interactúe.
+        if (!acceptingInput && progress >= INPUT_DELAY_TICKS) {
+            acceptingInput = true;
+        }
+
         if (progress > DURATION_TICKS) {
             fail();
             return;
@@ -57,6 +64,12 @@ public class BoltCutterMinigame {
     }
 
     public void onPlayerInteract(PlayerInteractEvent event) {
+        // Ignoro el click si el minijuego acaba de empezar (para prevenir el doble click).
+        if (!acceptingInput) {
+            event.setCancelled(true);
+            return;
+        }
+
         // El minijuego se resuelve con cualquier click derecho.
         if (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK) {
             event.setCancelled(true);

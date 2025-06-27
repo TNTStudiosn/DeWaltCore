@@ -31,8 +31,8 @@ public class MazeManager {
 
     // Defino las ubicaciones clave como constantes para fácil acceso.
     private static final Location PRE_LOBBY_LOCATION = new Location(Bukkit.getWorld("DeWALTLaberinto"), -2.45, 28.00, -294.39, 90, 0);
-    private static final Location MAZE_START_LOCATION = new Location(Bukkit.getWorld("DeWALTLaberinto"), 0.56, 7.00, 0.67, 90, 0);
-    private static final Location SAFE_EXIT_LOCATION = new Location(Bukkit.getWorld("DEWALTLOBBY"), -2.13, 78.00, 0.44, 90, 0);
+    private static final Location MAZE_START_LOCATION = new Location(Bukkit.getWorld("DeWALTLaberinto"), 0.56, 7.00, 0.67, 0, 0);
+    private static final Location SAFE_EXIT_LOCATION = new Location(Bukkit.getWorld("DEWALT LOBBY"), -2.13, 78.00, 0.44, 90, 0);
 
     // Almaceno el estado completo de cada jugador para un mejor control.
     private final Map<UUID, PlayerData> playerStates = new ConcurrentHashMap<>();
@@ -197,7 +197,9 @@ public class MazeManager {
                 for (Block bar : barsToRemove) {
                     BlockState originalState = restoringBlocks.remove(bar);
                     if (originalState != null) {
-                        originalState.update(true, false);
+                        // AQUÍ ESTÁ EL CAMBIO: El segundo parámetro 'true' fuerza una actualización de física,
+                        // lo que hace que los barrotes se conecten correctamente con sus vecinos.
+                        originalState.update(true, true);
                     }
                 }
                 clickedBlock.getWorld().playSound(clickedBlock.getLocation(), Sound.BLOCK_ANVIL_PLACE, 1.0f, 1.2f);
