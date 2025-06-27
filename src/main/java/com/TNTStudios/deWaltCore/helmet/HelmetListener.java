@@ -1,5 +1,3 @@
-// FILE: src/main/java/com/TNTStudios/deWaltCore/helmet/HelmetListener.java
-
 package com.TNTStudios.deWaltCore.helmet;
 
 import com.TNTStudios.deWaltCore.DeWaltCore;
@@ -14,7 +12,6 @@ import org.bukkit.event.player.PlayerDropItemEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.scheduler.BukkitRunnable;
 
 /**
  * Mi listener para eventos que podrían quitarle el casco a los jugadores.
@@ -35,26 +32,17 @@ public class HelmetListener implements Listener {
     @EventHandler(priority = EventPriority.LOW)
     public void onPlayerJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
-        // Lo hago con un pequeño retraso para asegurar que el jugador y sus datos estén completamente cargados.
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                helmetManager.ensureHelmetIsEquipped(player);
-            }
-        }.runTaskLater(plugin, 5L);
+        // BlueAI: Uso el scheduler directamente con una lambda. Es más limpio y evita crear una
+        // instancia de una clase anónima (new BukkitRunnable) para cada jugador que entra.
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> helmetManager.ensureHelmetIsEquipped(player), 5L);
     }
 
     // Cuando el jugador reaparece, le devuelvo su casco.
     @EventHandler
     public void onPlayerRespawn(PlayerRespawnEvent event) {
         final Player player = event.getPlayer();
-        // El retraso de 1 tick es clave para asegurar que el inventario está listo para ser modificado.
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                helmetManager.ensureHelmetIsEquipped(player);
-            }
-        }.runTaskLater(plugin, 1L);
+        // BlueAI: Aplico la misma optimización que en onPlayerJoin.
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> helmetManager.ensureHelmetIsEquipped(player), 1L);
     }
 
     // El evento más importante: bloqueo los clics en el slot del casco.
@@ -66,14 +54,15 @@ public class HelmetListener implements Listener {
         if (event.getRawSlot() == 5) {
             event.setCancelled(true);
 
-            // Adicionalmente, si el jugador logró de alguna forma "agarrar" el casco en su cursor
-            // (por lag o un bug de cliente), lo corrijo de inmediato.
+            // BlueAI: ¡Optimización CRÍTICA!
+            // En lugar de limpiar el cursor y clonar un nuevo casco desde la caché (lo que crea un objeto
+            // nuevo en un evento de alta frecuencia), reutilizo el item que ya está en el cursor.
+            // Si el jugador logró poner el casco en el cursor, simplemente lo tomo de ahí y lo vuelvo a equipar.
+            // Esto evita por completo la creación de un nuevo ItemStack (clone()) y reduce la presión sobre el GC.
             ItemStack cursorItem = event.getCursor();
             if (helmetManager.isCustomHelmet(cursorItem)) {
-                event.setCursor(null); // Limpio el cursor.
-                // Re-equipo el casco para asegurar la consistencia visual.
-                // Esta llamada es segura porque ya estamos en el hilo principal.
-                ((Player) event.getWhoClicked()).getInventory().setHelmet(helmetManager.getHelmetItem());
+                ((Player) event.getWhoClicked()).getInventory().setHelmet(cursorItem);
+                event.setCursor(null);
             }
         }
     }
@@ -81,7 +70,7 @@ public class HelmetListener implements Listener {
     // Si un jugador muere, evito que el casco caiga al suelo.
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerDeath(PlayerDeathEvent event) {
-        // Uso un iterador para remover de forma segura y performante el casco de los drops.
+        // BlueAI: Esta implementación con removeIf es moderna, limpia y la más performante. No necesita cambios.
         event.getDrops().removeIf(helmetManager::isCustomHelmet);
     }
 
