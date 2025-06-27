@@ -8,6 +8,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
@@ -49,6 +50,12 @@ public class WoodcutterListener implements Listener {
                 woodcutterManager.handleFurnitureInteract(player, furnitureMechanic);
             }
         }
+    }
+
+    @EventHandler
+    public void onInventoryClose(InventoryCloseEvent event) {
+        // Llama al nuevo método en tu manager
+        woodcutterManager.handleInventoryClose(event);
     }
 
     /**

@@ -314,6 +314,54 @@ public class WoodcutterManager {
         }
     }
 
+    // Esto es CRUCIAL para evitar que el jugador se quede "atascado".
+
+    /**
+     * Maneja el cierre de un inventario. Si el jugador estaba en un minijuego con GUI,
+     * lo detecta y cancela el minijuego para limpiar su estado.
+     * @param event El evento de cierre de inventario proporcionado por Bukkit.
+     */
+    public void handleInventoryClose(org.bukkit.event.inventory.InventoryCloseEvent event) {
+        if (!(event.getPlayer() instanceof Player player)) return;
+
+        UUID playerUUID = player.getUniqueId();
+
+        // Verifico si el jugador que cerró el inventario estaba en un minijuego activo.
+        if (activeMinigames.containsKey(playerUUID)) {
+            Minigame minigame = activeMinigames.get(playerUUID);
+
+            // Uso 'instanceof' para determinar si el minijuego era uno con GUI
+            // y para obtener su inventario específico.
+            Inventory minigameInventory = null;
+            if (minigame instanceof CutterMinigame cutterGame) {
+                minigameInventory = cutterGame.inventory;
+            } else if (minigame instanceof HammerMinigame hammerGame) {
+                minigameInventory = hammerGame.inventory;
+            }
+
+            // Si el inventario que se cerró es efectivamente el del minijuego...
+            if (minigameInventory != null && event.getInventory().equals(minigameInventory)) {
+                // ...lo considero un fallo, ya que el jugador abandonó el desafío.
+                // Uso un BukkitRunnable para ejecutar la lógica en el siguiente tick del servidor.
+                // Esto evita conflictos si el jugador cierra la GUI en el mismo instante en que gana.
+                new BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        // Doble chequeo para asegurar que el jugador no completó el minijuego
+                        // justo antes de que este código se ejecute.
+                        if (activeMinigames.containsKey(playerUUID)) {
+                            if (minigame instanceof CutterMinigame cutterGame) {
+                                cutterGame.fail();
+                            } else if (minigame instanceof HammerMinigame hammerGame) {
+                                hammerGame.fail();
+                            }
+                        }
+                    }
+                }.runTask(plugin);
+            }
+        }
+    }
+
     // --- 5. LÓGICA DE LOS MINIJUEGOS INTERNOS ---
 
     private void startAxeMinigame(Player player) {
