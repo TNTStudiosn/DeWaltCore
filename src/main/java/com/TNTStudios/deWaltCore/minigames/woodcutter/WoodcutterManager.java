@@ -62,7 +62,7 @@ public class WoodcutterManager {
     private static final int MIN_PLAYERS = 1;
     private static final int MAX_PLAYERS = 20;
     private static final int LOBBY_DURATION_SECONDS = 60;
-    private static final int GAME_DURATION_SECONDS = 500;
+    private static final int GAME_DURATION_SECONDS = 400;
     private static final long AXE_MINIGAME_COOLDOWN_MS = 200L;
 
     // --- IDs DE ITEMS Y BLOQUES (extraídos de tus instrucciones) ---
@@ -407,7 +407,11 @@ public class WoodcutterManager {
     private void awardPointsAndShowResults(Map<UUID, PlayerData> finalScores) {
         if (finalScores.isEmpty()) return;
 
-        List<Map.Entry<UUID, PlayerData>> sortedPlayers = finalScores.entrySet().stream()
+        // --- MI CORRECCIÓN (INICIO) ---
+        // 1. Guardo el estado del Top 3 ANTES de dar los puntos para compararlo después.
+        final List<PointsManager.PlayerScore> topBefore = pointsManager.getTopPlayers(3);
+
+        final List<Map.Entry<UUID, PlayerData>> sortedPlayers = finalScores.entrySet().stream()
                 .sorted(Map.Entry.<UUID, PlayerData>comparingByValue(Comparator.comparingInt(d -> d.score)).reversed())
                 .collect(Collectors.toList());
 
@@ -416,26 +420,72 @@ public class WoodcutterManager {
         for (int i = 0; i < sortedPlayers.size() && i < 3; i++) {
             Map.Entry<UUID, PlayerData> entry = sortedPlayers.get(i);
             Player p = Bukkit.getPlayer(entry.getKey());
-            String name = (p != null) ? p.getName() : "Jugador Desconectado";
+            String name = (p != null) ? p.getName() : "Jugador Desc.";
             String color = i == 0 ? "§e" : (i == 1 ? "§7" : "§c");
             resultsMessage.append(String.format("%s#%d %s - %d mesas\n", color, i + 1, name, entry.getValue().score));
         }
         resultsMessage.append("§6--------------------------------------\n");
         String finalResults = resultsMessage.toString();
 
-        // Me aseguro de enviar el resultado solo a los que jugaron.
+        // 2. Reparto los puntos y envío los mensajes de resultados a los que jugaron.
         for (int i = 0; i < sortedPlayers.size(); i++) {
             Map.Entry<UUID, PlayerData> entry = sortedPlayers.get(i);
             Player p = Bukkit.getPlayer(entry.getKey());
             if (p == null || !p.isOnline()) continue;
 
             int pointsWon = (i == 0) ? 15 : (i == 1) ? 7 : (i == 2) ? 3 : 1;
+            // Aquí es donde PointsManager actualiza los datos y el caché interno del leaderboard.
             pointsManager.addPoints(p, pointsWon, "woodcutter_minigame", "Ranking final");
 
             p.sendMessage(finalResults);
             p.sendMessage(String.format("§aTu posición: #%d. Has ganado §e%d puntos§a.", i + 1, pointsWon));
         }
+
+        // 3. Obtengo el estado del Top 3 DESPUÉS de dar los puntos.
+        final List<PointsManager.PlayerScore> topAfter = pointsManager.getTopPlayers(3);
+
+        // 4. Ejecuto la actualización del scoreboard en el hilo principal para máxima seguridad.
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                // 5. Comparo si el Top 3 cambió. Si es así, actualizo el scoreboard para TODOS.
+                if (!topBefore.equals(topAfter)) {
+                    plugin.getLogger().info("El Top 3 ha cambiado. Actualizando scoreboard para todos los jugadores online...");
+                    for (Player onlinePlayer : Bukkit.getOnlinePlayers()) {
+                        if (onlinePlayer.isOnline()) { // Doble chequeo por si se desconectan durante el bucle
+                            updatePlayerScoreboard(onlinePlayer, topAfter);
+                        }
+                    }
+                } else {
+                    // Si el Top 3 no cambió, solo actualizo el scoreboard de los que jugaron,
+                    // ya que su puntuación personal sí cambió.
+                    for (Map.Entry<UUID, PlayerData> entry : sortedPlayers) {
+                        Player p = Bukkit.getPlayer(entry.getKey());
+                        if (p != null && p.isOnline()) {
+                            updatePlayerScoreboard(p, topAfter);
+                        }
+                    }
+                }
+            }
+        }.runTask(plugin);
+        // --- MI CORRECCIÓN (FIN) ---
     }
+
+// --- MI NUEVO MÉTODO DE AYUDA (Añádelo al final de la clase WoodcutterManager) ---
+    /**
+     * Un método de ayuda para centralizar la lógica de actualización del scoreboard.
+     * Es privado porque solo lo necesita esta clase.
+     * @param player El jugador cuyo scoreboard se actualizará.
+     * @param topPlayers La lista actualizada del Top 3 para mostrar.
+     */
+    private void updatePlayerScoreboard(Player player, List<PointsManager.PlayerScore> topPlayers) {
+        int totalPoints = pointsManager.getTotalPoints(player);
+        int topPosition = pointsManager.getPlayerRank(player);
+        // Tu lógica para 'unlockedAll' debería estar aquí, por ahora será false.
+        boolean unlockedAll = false;
+        com.TNTStudios.deWaltCore.scoreboard.DeWaltScoreboardManager.showDefaultPage(player, topPosition, totalPoints, unlockedAll, topPlayers);
+    }
+
 
     private void teleportAllToSafety(Set<UUID> playerUuids) {
         new BukkitRunnable() {
@@ -858,13 +908,12 @@ public class WoodcutterManager {
                     }
                     if (activeNails.size() < 3) spawnNail();
                 }
-            }.runTaskTimer(plugin, 0, 10L); // Spawnea clavos rápido
+            }.runTaskTimer(plugin, 0, 10L);
 
             roundTimerTask = new BukkitRunnable() {
                 @Override
                 public void run() {
                     if (!player.isOnline() || !inventory.getViewers().contains(player)) return;
-                    // Si el tiempo se acaba y no ha completado los hits, falla la ronda.
                     if (hits < HITS_PER_ROUND) fail();
                 }
             }.runTaskLater(plugin, ROUND_DURATION_TICKS);
@@ -879,18 +928,39 @@ public class WoodcutterManager {
                 new BukkitRunnable() {
                     @Override
                     public void run() {
+                        // Si el clavo se elimina aquí, es porque el jugador no lo golpeó a tiempo.
+                        // El método .remove() devuelve true si el elemento existía y fue eliminado.
                         if (activeNails.remove(slot) && inventory.getViewers().contains(player)) {
                             inventory.setItem(slot, GUI_FILLER);
                         }
+                        // Si .remove() devuelve false, es porque onInventoryClick ya lo eliminó (un golpe exitoso).
                     }
-                }.runTaskLater(plugin, 30L); // El clavo desaparece después de 1.5s
+                    // --- MI CORRECCIÓN (INICIO) ---
+                    // Aumento el tiempo de vida del clavo de 1.5s a 2s (30 -> 40 ticks).
+                    // Esto le da al jugador un margen de reacción más justo, reduciendo la
+                    // posibilidad de que el clavo expire justo cuando el jugador hace clic.
+                }.runTaskLater(plugin, 40L);
+                // --- MI CORRECCIÓN (FIN) ---
             }
         }
 
         @Override
         public void onInventoryClick(InventoryClickEvent event) {
             if (event.getClickedInventory() != inventory) return;
+
+            // --- MI CORRECCIÓN (INICIO) ---
+            // Añado una doble verificación para máxima robustez.
+            // 1. Verifico que el ítem clickeado sea visualmente un clavo.
+            // 2. La operación activeNails.remove() sigue siendo la clave, ya que es atómica y
+            //    resuelve la "carrera" entre el clic del jugador y el temporizador de expiración.
+            if (event.getCurrentItem() == null || !event.getCurrentItem().isSimilar(NAIL_ITEM)) {
+                return; // Si no es un clavo (o es un slot vacío), no hago nada.
+            }
+            // --- MI CORRECCIÓN (FIN) ---
+
             int slot = event.getSlot();
+
+            // Si .remove(slot) devuelve true, significa que el clic fue exitoso y a tiempo.
             if(activeNails.remove(slot)) {
                 hits++;
                 player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_PLACE, 1f, 1.5f);
@@ -908,6 +978,8 @@ public class WoodcutterManager {
                     }
                 }
             }
+            // Si .remove(slot) devuelve false, significa que el clavo ya había sido eliminado por el temporizador.
+            // El clic fue demasiado tarde, así que no se procesa nada.
         }
 
         private void succeed() {
