@@ -1,4 +1,3 @@
-// FILE: src/main/java/com/TNTStudios/deWaltCore/DeWaltCore.java
 package com.TNTStudios.deWaltCore;
 
 // Importo las nuevas clases del minijuego del concreto
@@ -8,19 +7,19 @@ import com.TNTStudios.deWaltCore.minigames.concrete.ConcreteManager;
 import com.TNTStudios.deWaltCore.minigames.drill.DrillCommand;
 import com.TNTStudios.deWaltCore.minigames.drill.DrillListener;
 import com.TNTStudios.deWaltCore.minigames.drill.DrillManager;
-import com.TNTStudios.deWaltCore.minigames.MinigameListener;
-import com.TNTStudios.deWaltCore.minigames.maze.MazeCommand;
-import com.TNTStudios.deWaltCore.minigames.maze.MazeManager;
-import com.TNTStudios.deWaltCore.points.PointsManager;
-import com.TNTStudios.deWaltCore.scoreboard.ScoreboardListener;
-import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitRunnable;
 import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterCommand;
 import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterListener;
 import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterManager;
+import com.TNTStudios.deWaltCore.minigames.maze.MazeCommand;
+import com.TNTStudios.deWaltCore.minigames.maze.MazeManager;
+import com.TNTStudios.deWaltCore.minigames.MinigameListener;
+import com.TNTStudios.deWaltCore.points.PointsManager;
+import com.TNTStudios.deWaltCore.scoreboard.ScoreboardListener;
 import com.TNTStudios.deWaltCore.registration.EmailValidator;
 import com.TNTStudios.deWaltCore.registration.RegistrationListener;
 import com.TNTStudios.deWaltCore.registration.RegistrationManager;
+import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitRunnable;
 
 public final class DeWaltCore extends JavaPlugin {
 
@@ -34,22 +33,28 @@ public final class DeWaltCore extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        // Guardar la configuración por defecto (crea config.yml si no existe)
+        saveDefaultConfig();
+
         // --- MI NUEVO SISTEMA DE REGISTRO ---
         getLogger().info("Inicializando el sistema de registro de jugadores...");
         this.registrationManager = new RegistrationManager(this);
-        getServer().getPluginManager().registerEvents(new RegistrationListener(this.registrationManager), this);
+        getServer().getPluginManager().registerEvents(
+                new RegistrationListener(this.registrationManager), this
+        );
         getLogger().info("Sistema de registro cargado correctamente.");
 
-        // --- Scoreboard y Registro ---
-        getServer().getPluginManager().registerEvents(new ScoreboardListener(), this);
+        // --- Scoreboard ---
+        getServer().getPluginManager().registerEvents(
+                new ScoreboardListener(), this
+        );
 
         // --- Sistema de Puntos y Minijuegos ---
         pointsManager = new PointsManager(this);
         mazeManager = new MazeManager(this, pointsManager);
         drillManager = new DrillManager(this, pointsManager);
-        // Inicializo mi nuevo manager del concreto
-        concreteManager = new ConcreteManager(this, pointsManager);
         woodcutterManager = new WoodcutterManager(this, pointsManager);
+        concreteManager = new ConcreteManager(this, pointsManager);
 
         // --- Comandos ---
         // Laberinto
@@ -61,21 +66,29 @@ public final class DeWaltCore extends JavaPlugin {
         DrillCommand drillCommand = new DrillCommand(drillManager);
         getCommand("taladro").setExecutor(drillCommand);
 
-        // Concreto (necesito añadir 'concreto' a mi plugin.yml)
+        // Concreto
         ConcreteCommand concreteCommand = new ConcreteCommand(concreteManager);
         getCommand("concreto").setExecutor(concreteCommand);
 
+        // Cortador de madera
         WoodcutterCommand woodcutterCommand = new WoodcutterCommand(woodcutterManager);
         getCommand("madera").setExecutor(woodcutterCommand);
 
+        // --- Listeners de Minijuegos ---
+        getServer().getPluginManager().registerEvents(
+                new MinigameListener(mazeManager), this
+        );
+        getServer().getPluginManager().registerEvents(
+                new DrillListener(drillManager), this
+        );
+        getServer().getPluginManager().registerEvents(
+                new ConcreteListener(concreteManager), this
+        );
+        getServer().getPluginManager().registerEvents(
+                new WoodcutterListener(woodcutterManager), this
+        );
 
-        // --- Listeners ---
-        getServer().getPluginManager().registerEvents(new MinigameListener(mazeManager), this);
-        getServer().getPluginManager().registerEvents(new DrillListener(drillManager), this);
-        getServer().getPluginManager().registerEvents(new ConcreteListener(concreteManager), this);
-        getServer().getPluginManager().registerEvents(new WoodcutterListener(woodcutterManager), this);
-
-        // Tarea periódica para guardar el leaderboard de forma segura.
+        // Tarea periódica para guardar el leaderboard automáticamente
         new BukkitRunnable() {
             @Override
             public void run() {
@@ -96,7 +109,17 @@ public final class DeWaltCore extends JavaPlugin {
         }
     }
 
+    /**
+     * Acceso estático al PointsManager desde otras clases.
+     */
     public static PointsManager getPointsManager() {
         return pointsManager;
+    }
+
+    /**
+     * Acceso al RegistrationManager para registros externos.
+     */
+    public RegistrationManager getRegistrationManager() {
+        return registrationManager;
     }
 }

@@ -1,0 +1,17 @@
+# Configuración de spawns para DeWaltCore
+
+spawns:
+  unregistered:
+    world: "DEWALT LOBBY"
+    x: -277.58
+    y: -29.00
+    z: 0.63
+    yaw: 90.0
+    pitch: 0.0
+  registered:
+    world: "DEWALT LOBBY"
+    x: -2.13
+    y: 78.00
+    z: 0.44
+    yaw: 90.0
+    pitch: 0.0

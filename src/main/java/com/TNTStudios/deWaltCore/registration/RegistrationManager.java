@@ -4,9 +4,12 @@ package com.TNTStudios.deWaltCore.registration;
 import com.TNTStudios.deWaltCore.DeWaltCore;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
+import org.bukkit.metadata.FixedMetadataValue;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.File;
@@ -15,96 +18,147 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 
 /**
- * Mi gestor para el sistema de registro.
- * Se encarga de verificar si un jugador ya se registró y de guardar
- * sus datos de forma asíncrona para un rendimiento máximo.
- */
+  * Mi gestor para el sistema de registro.
+  * Ahora utiliza un caché para las verificaciones y carga las ubicaciones desde config.yml.
+  */
 public class RegistrationManager {
 
-    public final DeWaltCore plugin; // Hago el plugin accesible para la tarea de teleport.
+    public final DeWaltCore plugin;
     private final File registrationFolder;
 
-    // Defino las ubicaciones exactas que me pediste.
-    private static final Location UNREGISTERED_SPAWN = new Location(Bukkit.getWorld("DEWALT LOBBY"), -277.58, -29.00, 0.63, 90, 0);
-    private static final Location REGISTERED_SPAWN = new Location(Bukkit.getWorld("DEWALT LOBBY"), -2.13, 78.00, 0.44, 90, 0);
+    // OPTIMIZACIÓN: Caché para evitar leer el disco en cada join.
+    // Guardo el estado de registro de los jugadores para una consulta casi instantánea.
+    private final ConcurrentHashMap<UUID, Boolean> registeredCache = new ConcurrentHashMap<>();
+
+    // MEJORA: Ahora las ubicaciones se cargarán desde la config para mayor flexibilidad.
+    private Location unregisteredSpawn;
+    private Location registeredSpawn;
 
     public RegistrationManager(DeWaltCore plugin) {
         this.plugin = plugin;
-        // Creo una carpeta específica para los registros, manteniendo todo ordenado.
         this.registrationFolder = new File(plugin.getDataFolder(), "registrations");
         if (!registrationFolder.exists()) {
             registrationFolder.mkdirs();
         }
+        // Cargo las configuraciones al iniciar el manager.
+        loadLocations();
     }
 
     /**
-     * Limpio el inventario del jugador. Esto se ejecuta siempre que entra.
-     * @param player El jugador cuyo inventario voy a limpiar.
+     * Cargo las ubicaciones de spawn desde el archivo config.yml del plugin.
+     * Esto me permite cambiarlas sin tener que recompilar todo.
      */
+    public void loadLocations() {
+        plugin.saveDefaultConfig(); // Me aseguro de que config.yml exista.
+        FileConfiguration config = plugin.getConfig();
+
+        unregisteredSpawn = getLocationFromConfig("spawns.unregistered");
+        registeredSpawn = getLocationFromConfig("spawns.registered");
+
+        plugin.getLogger().info("Ubicaciones de spawn cargadas correctamente.");
+    }
+
+    private Location getLocationFromConfig(String path) {
+        ConfigurationSection section = plugin.getConfig().getConfigurationSection(path);
+        if (section == null) {
+            plugin.getLogger().severe("¡ERROR! La sección '" + path + "' no existe en config.yml. Usando ubicación por defecto.");
+            return new Location(Bukkit.getWorlds().get(0), 0, 100, 0); // Un fallback seguro.
+        }
+        World world = Bukkit.getWorld(section.getString("world", "world"));
+        if (world == null) {
+            plugin.getLogger().severe("¡ERROR! El mundo '" + section.getString("world") + "' no existe. Usando mundo principal.");
+            world = Bukkit.getWorlds().get(0);
+        }
+        return new Location(
+                world,
+                section.getDouble("x"),
+                section.getDouble("y"),
+                section.getDouble("z"),
+                (float) section.getDouble("yaw"),
+                (float) section.getDouble("pitch")
+        );
+    }
+
     public void clearPlayerInventory(Player player) {
         player.getInventory().clear();
     }
 
-    /**
-     * Teletransporto al jugador a la zona de "no registrados".
-     * @param player El jugador a teletransportar.
-     */
+    // OPTIMIZACIÓN: Usaré un BukkitRunnable para asegurar que el teletransporte ocurra en el hilo principal
+    // y en un momento seguro, evitando conflictos con otros plugins durante el join.
     public void teleportToUnregisteredSpawn(Player player) {
-        player.teleport(UNREGISTERED_SPAWN);
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                player.teleport(unregisteredSpawn);
+                // Marco al jugador como no registrado usando metadatos para un chequeo eficiente.
+                player.setMetadata("unregistered", new FixedMetadataValue(plugin, true));
+            }
+        }.runTask(plugin);
     }
 
-    /**
-     * Teletransporto al jugador a la zona de "registrados".
-     * @param player El jugador a teletransportar.
-     */
     public void teleportToRegisteredSpawn(Player player) {
-        player.teleport(REGISTERED_SPAWN);
+        new BukkitRunnable() {
+            @Override
+            public void run() {
+                player.teleport(registeredSpawn);
+            }
+        }.runTask(plugin);
     }
 
     /**
-     * Verifico si un jugador ya tiene un archivo de registro.
-     * Esta operación es rápida y no necesita ser asíncrona.
+     * Verifico si un jugador está registrado usando el caché.
+     * Si no está en el caché, consulto el disco y actualizo el caché.
      * @param playerUUID La UUID del jugador.
-     * @return true si el archivo de registro existe.
+     * @return true si el jugador está registrado.
      */
     public boolean isRegistered(UUID playerUUID) {
+        // Primero, consulto el caché, que es la operación más rápida.
+        if (registeredCache.containsKey(playerUUID)) {
+            return registeredCache.get(playerUUID);
+        }
+
+        // Si no está en caché, reviso el archivo (operación más lenta).
         File playerFile = new File(registrationFolder, playerUUID.toString() + ".yml");
-        return playerFile.exists();
+        boolean exists = playerFile.exists();
+
+        // Guardo el resultado en el caché para futuras consultas.
+        registeredCache.put(playerUUID, exists);
+        return exists;
     }
 
     /**
-     * Guardo los datos de registro de un jugador en su archivo .yml.
-     * OPTIMIZADO: La escritura del archivo se hace en un hilo secundario
-     * para no afectar el rendimiento del servidor.
-     * Ahora acepto el objeto Player completo para acceder a su nombre.
+     * Registro a un jugador de forma asíncrona y actualizo el caché.
      * @param player El jugador a registrar.
      * @param email El correo electrónico a guardar.
      */
     public void registerPlayer(Player player, String email) {
+        UUID playerUUID = player.getUniqueId();
+
+        // Lo primero es actualizar el caché para que futuras llamadas a isRegistered() sean instantáneas.
+        registeredCache.put(playerUUID, true);
+
+        // Ahora sí, elimino el metadato de "congelado".
+        player.removeMetadata("unregistered", plugin);
+
         new BukkitRunnable() {
             @Override
             public void run() {
-                UUID playerUUID = player.getUniqueId();
                 String playerName = player.getName();
-
                 File playerFile = new File(registrationFolder, playerUUID.toString() + ".yml");
                 FileConfiguration playerData = YamlConfiguration.loadConfiguration(playerFile);
 
                 try {
-                    // Ahora guardo todos los datos importantes para una mejor gestión.
                     playerData.set("uuid", playerUUID.toString());
                     playerData.set("username", playerName);
                     playerData.set("email", email);
-
                     long timestamp = System.currentTimeMillis();
                     playerData.set("registration_timestamp", timestamp);
-
-                    // Añado una versión legible de la fecha para facilitar la revisión manual de los archivos.
                     String readableDate = Instant.ofEpochMilli(timestamp)
-                            .atZone(ZoneId.systemDefault()) // O una zona horaria específica como "America/Mexico_City"
+                            .atZone(ZoneId.systemDefault())
                             .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"));
                     playerData.set("registration_date", readableDate);
 
@@ -114,5 +168,16 @@ public class RegistrationManager {
                 }
             }
         }.runTaskAsynchronously(plugin);
+    }
+
+    // Método para limpiar el caché y metadatos cuando el jugador sale.
+    public void onPlayerQuit(Player player) {
+        UUID playerUUID = player.getUniqueId();
+        // Si el jugador no estaba registrado, lo elimino del caché para que la próxima vez
+        // se vuelva a verificar desde el archivo. Si ya estaba registrado, lo dejo en caché.
+        if (player.hasMetadata("unregistered")) {
+            player.removeMetadata("unregistered", plugin);
+            registeredCache.remove(playerUUID);
+        }
     }
 }
