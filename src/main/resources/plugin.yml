@@ -18,3 +18,6 @@ commands:
   madera:
     description: Te lleva al minijuego de la Cortadora de Madera.
     usage: /madera
+  spawn:
+    description: Te teletransporta al spawn principal del servidor.
+    usage: /spawn

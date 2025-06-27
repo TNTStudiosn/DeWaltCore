@@ -23,6 +23,10 @@ import com.TNTStudios.deWaltCore.registration.RegistrationManager;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import com.TNTStudios.deWaltCore.lobby.LobbyListener;
+import com.TNTStudios.deWaltCore.lobby.SpawnCommand;
+import org.bukkit.plugin.java.JavaPlugin;
+
 public final class DeWaltCore extends JavaPlugin {
 
     private static DeWaltCore instance;
@@ -61,6 +65,8 @@ public final class DeWaltCore extends JavaPlugin {
                 new ScoreboardListener(), this
         );
 
+        getServer().getPluginManager().registerEvents(new LobbyListener(), this);
+
         // --- Sistema de Puntos y Minijuegos ---
         pointsManager = new PointsManager(this);
         mazeManager = new MazeManager(this, pointsManager);
@@ -85,6 +91,8 @@ public final class DeWaltCore extends JavaPlugin {
         // Cortador de madera
         WoodcutterCommand woodcutterCommand = new WoodcutterCommand(woodcutterManager);
         getCommand("madera").setExecutor(woodcutterCommand);
+
+        getCommand("spawn").setExecutor(new SpawnCommand());
 
         // --- Listeners de Minijuegos ---
         getServer().getPluginManager().registerEvents(

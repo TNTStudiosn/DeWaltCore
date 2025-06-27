@@ -16,7 +16,7 @@ import org.jetbrains.annotations.NotNull;
 public class SpawnCommand implements CommandExecutor {
 
     // Defino la ubicación del spawn como una constante estática.
-    private static final Location SAFE_EXIT_LOCATION = new Location(Bukkit.getWorld("DEWALT LOBBY"), -2.13, 78.00, 0.44, 90, 0);
+    private static final Location SAFE_EXIT_LOCATION = new Location(Bukkit.getWorld("DEWALT LOBBY"), -2.13, 78.00, 0.44, 270, 0);
 
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
