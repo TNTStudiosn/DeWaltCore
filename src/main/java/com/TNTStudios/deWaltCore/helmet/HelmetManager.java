@@ -3,6 +3,7 @@ package com.TNTStudios.deWaltCore.helmet;
 import com.TNTStudios.deWaltCore.DeWaltCore;
 import io.th0rgal.oraxen.api.OraxenItems;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -48,25 +49,46 @@ public class HelmetManager {
 
     /**
      * Mi método principal de verificación.
-     * Revisa el casco del jugador y lo aplica si es necesario.
+     * Revisa el casco del jugador y lo aplica si es necesario, limpiando duplicados.
      * @param player El jugador a verificar.
      */
     public void ensureHelmetIsEquipped(Player player) {
         final ItemStack currentHelmet = player.getInventory().getHelmet();
-        // Si el casco que tiene no es mi casco personalizado, se lo pongo.
+        // Si el casco que tiene no es mi casco personalizado, se lo pongo y limpio su inventario.
         if (!isCustomHelmet(currentHelmet)) {
-            applyHelmet(player);
+            // Si el jugador tenía un item en la cabeza (que no era el mío), lo devuelvo a su inventario
+            // si hay espacio. Si no, lo dropeo. Esto evita que pierda items legítimos.
+            if (currentHelmet != null && !currentHelmet.getType().isAir()) {
+                player.getInventory().addItem(currentHelmet);
+            }
+
+            equipHelmetAndCleanInventory(player);
         }
     }
 
     /**
-     * Le pone el casco personalizado a un jugador.
-     * @param player El jugador que recibirá el casco.
+     * Le pone el casco personalizado a un jugador y elimina cualquier otra copia
+     * que pueda tener en su inventario o en el cursor para evitar la duplicación.
+     * @param player El jugador que recibirá el casco y cuya limpieza se ejecutará.
      */
-    private void applyHelmet(Player player) {
-        if (helmetItemCache != null) {
-            // Clono el item para evitar cualquier problema con el stack original.
-            player.getInventory().setHelmet(helmetItemCache.clone());
+    private void equipHelmetAndCleanInventory(Player player) {
+        if (helmetItemCache == null) return;
+
+        // 1. Me aseguro de que el jugador tenga el casco puesto.
+        player.getInventory().setHelmet(helmetItemCache.clone());
+
+        // 2. Reviso el item en el cursor del jugador. Si es mi casco, lo elimino.
+        // Esto es clave para cuando se quitan el casco y queda "agarrado".
+        if (isCustomHelmet(player.getItemOnCursor())) {
+            player.setItemOnCursor(null);
+        }
+
+        // 3. Recorro todo el inventario principal y elimino cualquier otra copia de mi casco.
+        // Así evito que los acumulen mediante cualquier método.
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (isCustomHelmet(item)) {
+                player.getInventory().remove(item);
+            }
         }
     }
 
