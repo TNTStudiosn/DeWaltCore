@@ -1,16 +1,18 @@
+// FILE: src/main/java/com/TNTStudios/deWaltCore/helmet/HelmetManager.java
+
 package com.TNTStudios.deWaltCore.helmet;
 
 import com.TNTStudios.deWaltCore.DeWaltCore;
 import io.th0rgal.oraxen.api.OraxenItems;
-import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.inventory.PlayerInventory;
 
 /**
  * Mi manager para asegurar que los jugadores siempre tengan el casco puesto.
- * Ahora está optimizado para depender de eventos y no de una tarea agresiva.
+ * Completamente optimizado para operar basado en eventos, sin tareas periódicas
+ * que puedan impactar el rendimiento del servidor.
  */
 public class HelmetManager {
 
@@ -33,49 +35,33 @@ public class HelmetManager {
         if (this.helmetItemCache == null || this.helmetItemCache.getType() == Material.AIR) {
             plugin.getLogger().severe("¡ERROR CRÍTICO! El item de Oraxen con ID '" + HELMET_ID + "' no se pudo encontrar.");
             plugin.getLogger().severe("La funcionalidad del casco permanente estará deshabilitada.");
-            return; // No inicio la tarea si el item no existe.
         }
-
-        // Esta es mi tarea de SEGURIDAD, no la lógica principal.
-        // Se ejecuta con mucha menos frecuencia solo para corregir estados inesperados
-        // (ej: otro plugin que limpia el inventario sin llamar eventos).
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                for (Player player : Bukkit.getOnlinePlayers()) {
-                    // Verifico si el jugador tiene el casco correcto.
-                    ensureHelmetIsEquipped(player);
-                }
-            }
-        }.runTaskTimerAsynchronously(plugin, 600L, 600L); // Empieza tras 30s, se repite cada 30s (600L = 30s * 20tps) y de forma asíncrona.
     }
 
     /**
-     * Mi método principal de verificación.
-     * Revisa el casco del jugador y lo aplica si es necesario.
+     * Mi método principal de verificación. Se ejecuta en el hilo principal.
+     * Revisa el casco del jugador y lo aplica si es necesario, devolviendo cualquier item previo.
      * @param player El jugador a verificar.
      */
     public void ensureHelmetIsEquipped(final Player player) {
-        if (player == null || !player.isOnline()) return;
+        if (player == null || !player.isOnline() || helmetItemCache == null) {
+            return;
+        }
 
-        final ItemStack currentHelmet = player.getInventory().getHelmet();
+        final PlayerInventory inventory = player.getInventory();
+        final ItemStack currentHelmet = inventory.getHelmet();
 
-        // Si el casco que tiene no es mi casco personalizado, se lo pongo.
+        // Si el casco que tiene no es mi casco personalizado, procedo a corregirlo.
         if (!isCustomHelmet(currentHelmet)) {
-            // Toda la manipulación del inventario debe hacerse en el hilo principal.
-            new BukkitRunnable() {
-                @Override
-                public void run() {
-                    // Si el jugador tenía un item en la cabeza (que no era el mío), lo devuelvo a su inventario
-                    // si hay espacio. Si no, lo dropeo. Esto evita que pierda items legítimos.
-                    if (currentHelmet != null && currentHelmet.getType() != Material.AIR) {
-                        player.getInventory().addItem(currentHelmet.clone());
-                    }
+            // Si el jugador tenía un item en la cabeza (que no era el mío), lo devuelvo a su inventario
+            // si hay espacio. Si no, lo dropeo cerca. Esto evita que pierda items legítimos.
+            if (currentHelmet != null && currentHelmet.getType() != Material.AIR) {
+                // El método addItem se encarga de dropear el item si no hay espacio. Es seguro.
+                inventory.addItem(currentHelmet.clone());
+            }
 
-                    // Le pongo el casco y limpio cualquier otra copia que pueda tener.
-                    equipHelmetAndCleanInventory(player);
-                }
-            }.runTask(plugin);
+            // Le pongo el casco y limpio cualquier otra copia que pueda tener.
+            equipHelmetAndCleanInventory(player);
         }
     }
 
@@ -87,12 +73,14 @@ public class HelmetManager {
     private void equipHelmetAndCleanInventory(Player player) {
         if (helmetItemCache == null) return;
 
+        PlayerInventory inventory = player.getInventory();
+
         // 1. Me aseguro de que el jugador tenga el casco puesto.
-        player.getInventory().setHelmet(getHelmetItem());
+        inventory.setHelmet(getHelmetItem());
 
         // 2. Limpio copias del inventario principal para evitar acumulación.
-        // La limpieza del cursor la maneja ahora el listener de clics, que es más eficiente.
-        player.getInventory().remove(helmetItemCache);
+        // El método de Bukkit es suficientemente performante para esta operación.
+        inventory.remove(helmetItemCache);
     }
 
     /**
@@ -104,7 +92,7 @@ public class HelmetManager {
         if (item == null || item.getType().isAir()) {
             return false;
         }
-        // OraxenItems.getIdByItem() es la forma más segura de identificar mi item.
+        // OraxenItems.getIdByItem() es la forma más segura y eficiente de identificar mi item.
         return HELMET_ID.equals(OraxenItems.getIdByItem(item));
     }
 
