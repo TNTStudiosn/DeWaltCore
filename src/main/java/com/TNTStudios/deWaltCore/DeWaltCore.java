@@ -1,6 +1,8 @@
 package com.TNTStudios.deWaltCore;
 
 // Importo las nuevas clases del minijuego del concreto
+import com.TNTStudios.deWaltCore.helmet.HelmetListener;
+import com.TNTStudios.deWaltCore.helmet.HelmetManager;
 import com.TNTStudios.deWaltCore.minigames.concrete.ConcreteCommand;
 import com.TNTStudios.deWaltCore.minigames.concrete.ConcreteListener;
 import com.TNTStudios.deWaltCore.minigames.concrete.ConcreteManager;
@@ -30,11 +32,19 @@ public final class DeWaltCore extends JavaPlugin {
     private ConcreteManager concreteManager;
     private RegistrationManager registrationManager;
     private EmailValidator emailValidator;
+    private HelmetManager helmetManager;
 
     @Override
     public void onEnable() {
         // Guardar la configuración por defecto (crea config.yml si no existe)
         saveDefaultConfig();
+
+        // --- MI NUEVO SISTEMA DE CASCO PERMANENTE ---
+        // Lo inicializo al principio para que esté disponible para todos los demás sistemas.
+        getLogger().info("Inicializando el sistema de casco permanente...");
+        this.helmetManager = new HelmetManager(this);
+        getServer().getPluginManager().registerEvents(new HelmetListener(this.helmetManager, this), this);
+        getLogger().info("Sistema de casco permanente cargado.");
 
         // --- MI NUEVO SISTEMA DE REGISTRO ---
         getLogger().info("Inicializando el sistema de registro de jugadores...");
