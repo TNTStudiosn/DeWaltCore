@@ -54,7 +54,6 @@ public class WoodcutterListener implements Listener {
 
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        // Llama al nuevo método en tu manager
         woodcutterManager.handleInventoryClose(event);
     }
 
