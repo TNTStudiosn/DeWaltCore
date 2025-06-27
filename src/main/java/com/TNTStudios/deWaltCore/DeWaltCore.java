@@ -37,8 +37,7 @@ public final class DeWaltCore extends JavaPlugin {
         // --- MI NUEVO SISTEMA DE REGISTRO ---
         getLogger().info("Inicializando el sistema de registro de jugadores...");
         this.registrationManager = new RegistrationManager(this);
-        this.emailValidator = new EmailValidator(this);
-        getServer().getPluginManager().registerEvents(new RegistrationListener(this.registrationManager, this.emailValidator), this);
+        getServer().getPluginManager().registerEvents(new RegistrationListener(this.registrationManager), this);
         getLogger().info("Sistema de registro cargado correctamente.");
 
         // --- Scoreboard y Registro ---

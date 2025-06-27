@@ -21,12 +21,12 @@ import java.util.logging.Level;
  */
 public class RegistrationManager {
 
-    private final DeWaltCore plugin;
+    public final DeWaltCore plugin; // Hago el plugin accesible para la tarea de teleport.
     private final File registrationFolder;
 
     // Defino las ubicaciones exactas que me pediste.
     private static final Location UNREGISTERED_SPAWN = new Location(Bukkit.getWorld("DEWALT LOBBY"), -277.58, -29.00, 0.63, 90, 0);
-    private static final Location REGISTERED_SPAWN = new Location(Bukkit.getWorld("DEWALT LOBBY"), -2.13, 78.00, 0.44, 90, 0);
+    private static final Location REGISTERED_SPAWN = new Location(Bukkit.getWorld("DEWALT LOBBY"), -2.13, 78.00, 0.44, 270, 0);
 
     public RegistrationManager(DeWaltCore plugin) {
         this.plugin = plugin;

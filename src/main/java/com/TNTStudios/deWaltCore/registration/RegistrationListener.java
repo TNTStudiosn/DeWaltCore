@@ -2,13 +2,13 @@
 package com.TNTStudios.deWaltCore.registration;
 
 import org.bukkit.ChatColor;
+import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
-import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.*;
 
 import java.util.Set;
 import java.util.UUID;
@@ -16,20 +16,19 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Mi listener para el proceso de registro.
- * Se activa cuando un jugador entra al servidor y maneja la captura de su email por chat.
+ * Ahora también se encarga de "congelar" a los jugadores no registrados.
  */
 public class RegistrationListener implements Listener {
 
     private final RegistrationManager registrationManager;
-    private final EmailValidator emailValidator;
 
     // Uso un Set concurrente para guardar los jugadores que están en proceso de registro.
     // Es seguro para añadir/quitar desde diferentes hilos.
     private final Set<UUID> pendingRegistration = ConcurrentHashMap.newKeySet();
 
-    public RegistrationListener(RegistrationManager registrationManager, EmailValidator emailValidator) {
+    public RegistrationListener(RegistrationManager registrationManager) {
         this.registrationManager = registrationManager;
-        this.emailValidator = emailValidator;
+        // Ya no necesito pasar el EmailValidator, usaré su método estático directamente.
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -37,7 +36,7 @@ public class RegistrationListener implements Listener {
         Player player = event.getPlayer();
         UUID playerUUID = player.getUniqueId();
 
-        // 1. Limpio el inventario del jugador, como se solicitó.
+        // 1. Limpio el inventario del jugador.
         registrationManager.clearPlayerInventory(player);
 
         // 2. Verifico si el jugador ya está registrado.
@@ -52,9 +51,8 @@ public class RegistrationListener implements Listener {
             player.sendMessage(ChatColor.AQUA + "¡Bienvenid@ a DeWALT! Para continuar, necesitamos que te registres.");
             player.sendMessage(ChatColor.YELLOW + "Por favor, escribe tu correo electrónico en el chat.");
             player.sendMessage(ChatColor.GRAY + "(Tu correo no será visible para los demás jugadores)");
+            player.sendMessage(ChatColor.RED + "No podrás moverte ni interactuar hasta que te registres.");
             player.sendMessage(ChatColor.GOLD + "-------------------------------------------");
-
-            // Aquí podríamos añadir lógica para congelar al jugador y que no pueda moverse.
         }
     }
 
@@ -63,7 +61,6 @@ public class RegistrationListener implements Listener {
         Player player = event.getPlayer();
         UUID playerUUID = player.getUniqueId();
 
-        // Si el jugador no está en la lista de "pendiente de registro", no hago nada.
         if (!pendingRegistration.contains(playerUUID)) {
             return;
         }
@@ -72,32 +69,75 @@ public class RegistrationListener implements Listener {
         event.setCancelled(true);
         String email = event.getMessage();
 
-        // Verifico el formato del correo.
-        if (!emailValidator.isValidFormat(email)) {
-            player.sendMessage(ChatColor.RED + "El formato del correo no es válido. Asegúrate de que incluya un '@' y un dominio (ej: usuario@dominio.com). Inténtalo de nuevo.");
+        // Verifico el formato del correo de forma síncrona y directa.
+        if (!EmailValidator.isValidFormat(email)) {
+            player.sendMessage(ChatColor.RED + "El formato del correo no es válido. Asegúrate de que sea como 'usuario@dominio.com'. Inténtalo de nuevo.");
             return;
         }
 
-        player.sendMessage(ChatColor.YELLOW + "Verificando tu correo en nuestro sistema, por favor espera...");
+        // El formato es correcto, procedo a registrarlo.
+        pendingRegistration.remove(playerUUID);
+        registrationManager.registerPlayer(playerUUID, email);
+        player.sendMessage(ChatColor.GREEN + "¡Registro completado con éxito! Gracias por unirte.");
 
-        // Verifico el correo con el servicio web. El resultado llega en el callback.
-        emailValidator.verifyEmailOnline(email, isValid -> {
-            // Este código se ejecuta cuando la API responde.
-            if (isValid) {
-                pendingRegistration.remove(playerUUID);
-                registrationManager.registerPlayer(playerUUID, email);
-                player.sendMessage(ChatColor.GREEN + "¡Registro completado con éxito! Gracias por unirte.");
-                // Una vez registrado, lo envío a la zona de jugadores registrados.
-                registrationManager.teleportToRegisteredSpawn(player);
-            } else {
-                player.sendMessage(ChatColor.RED + "Este correo no parece ser válido o no pudo ser verificado. Por favor, intenta con otro.");
-            }
-        });
+        // Lo muevo al hilo principal para el teleport, que es una acción que debe hacerse ahí.
+        new PlayerTeleportTask(player, registrationManager).runTask(registrationManager.plugin);
     }
 
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         // Si un jugador se desconecta durante el proceso de registro, lo elimino de la lista.
         pendingRegistration.remove(event.getPlayer().getUniqueId());
+    }
+
+    // --- SECCIÓN DE EVENTOS PARA CONGELAR AL JUGADOR ---
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerMove(PlayerMoveEvent event) {
+        // Solo cancelo el evento si realmente se está moviendo de bloque, para permitirle mirar a su alrededor.
+        Location from = event.getFrom();
+        Location to = event.getTo();
+        if (pendingRegistration.contains(event.getPlayer().getUniqueId()) && (from.getBlockX() != to.getBlockX() || from.getBlockY() != to.getBlockY() || from.getBlockZ() != to.getBlockZ())) {
+            event.setTo(from); // Lo devuelvo a su posición anterior para evitar que se mueva.
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerInteract(PlayerInteractEvent event) {
+        if (pendingRegistration.contains(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerDropItem(PlayerDropItemEvent event) {
+        if (pendingRegistration.contains(event.getPlayer().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onInventoryClick(InventoryClickEvent event) {
+        if (event.getWhoClicked() instanceof Player && pendingRegistration.contains(event.getWhoClicked().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    // Tarea auxiliar para teletransportar al jugador en el hilo principal de Bukkit.
+    private static class PlayerTeleportTask extends org.bukkit.scheduler.BukkitRunnable {
+        private final Player player;
+        private final RegistrationManager registrationManager;
+
+        PlayerTeleportTask(Player player, RegistrationManager rm) {
+            this.player = player;
+            this.registrationManager = rm;
+        }
+
+        @Override
+        public void run() {
+            if (player.isOnline()) { // Me aseguro de que el jugador sigue conectado.
+                registrationManager.teleportToRegisteredSpawn(player);
+            }
+        }
     }
 }
