@@ -24,6 +24,7 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 /**
@@ -51,6 +52,7 @@ public class WoodcutterManager {
     // Tareas principales del juego
     private BukkitTask lobbyCountdownTask;
     private BukkitTask gameTimerTask;
+    private BukkitTask minigameTickTask;
     private int lobbyTimeLeft;
     private int gameTimeLeft;
 
@@ -160,27 +162,37 @@ public class WoodcutterManager {
     // --- 2. LÓGICA PRINCIPAL DEL JUEGO ---
 
     private void startGame() {
-        currentState = GameState.RUNNING;
-        gameTimeLeft = GAME_DURATION_SECONDS;
+    currentState = GameState.RUNNING;
+    gameTimeLeft = GAME_DURATION_SECONDS;
 
-        if (!validateOraxenItems()) {
-            broadcastToLobby(ChatColor.RED + "Error crítico: Faltan items de Oraxen. El juego no puede empezar. Avisa a un administrador.");
-            resetGame();
-            return;
-        }
-
-        for (UUID uuid : lobbyPlayers) {
-            Player p = Bukkit.getPlayer(uuid);
-            if (p != null) {
-                gamePlayers.put(uuid, new PlayerData());
-                setupPlayerForGame(p);
-            }
-        }
-        lobbyPlayers.clear();
-
-        broadcastToGame(ChatColor.GOLD + "¡El juego ha comenzado! ¡Ve a por troncos de abeto!");
-        startGameTimer();
+    if (!validateOraxenItems()) {
+      broadcastToLobby(ChatColor.RED + "Error crítico: Faltan items de Oraxen. El juego no puede empezar. Avisa a un administrador.");
+      resetGame();
+      return;
     }
+
+    for (UUID uuid : lobbyPlayers) {
+      Player p = Bukkit.getPlayer(uuid);
+      if (p != null) {
+        gamePlayers.put(uuid, new PlayerData());
+        setupPlayerForGame(p);
+      }
+    }
+    lobbyPlayers.clear();
+
+    broadcastToGame(ChatColor.GOLD + "¡El juego ha comenzado! ¡Ve a por troncos de abeto!");
+    startGameTimer();
+
+        // Inicio mi nuevo task maestro que gestionará todos los minijuegos.
+        minigameTickTask = new BukkitRunnable() {
+            @Override
+            public void run() {
+                if (activeMinigames.isEmpty()) return;
+                // Itera de forma segura sobre los valores del mapa concurrente.
+                activeMinigames.values().forEach(Minigame::tick);
+            }
+        }.runTaskTimer(plugin, 0L, 1L);
+  }
 
     private void setupPlayerForGame(Player player) {
         player.teleport(LOBBY_SPAWN_LOCATION);
@@ -193,22 +205,23 @@ public class WoodcutterManager {
 
         // Empiezo dándole el hacha para la primera etapa
         player.getInventory().addItem(createWoodcutterAxe());
-        updateBossBars();
+        updatePlayerBossBar(player);
     }
 
     private void startGameTimer() {
-        gameTimerTask = new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (gamePlayers.isEmpty() || gameTimeLeft <= 0) {
-                    endGame("Se acabó el tiempo");
-                    return;
-                }
-                updateBossBars();
-                gameTimeLeft--;
-            }
-        }.runTaskTimer(plugin, 0L, 20L);
-    }
+    gameTimerTask = new BukkitRunnable() {
+      @Override
+      public void run() {
+        if (gamePlayers.isEmpty() || gameTimeLeft <= 0) {
+          endGame("Se acabó el tiempo");
+          return;
+        }
+
+        updateBossBars();
+        gameTimeLeft--;
+      }
+    }.runTaskTimer(plugin, 0L, 20L); // Se mantiene en 20L (1 segundo)
+  }
 
     // --- 3. GESTIÓN DE ETAPAS Y PROGRESO ---
 
@@ -243,7 +256,7 @@ public class WoodcutterManager {
                 player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.YELLOW + "¡Excelente! ¡A por la siguiente mesa!"));
             }
         }
-        updateBossBars();
+        updatePlayerBossBar(player);
     }
 
     // --- 4. MANEJADORES DE EVENTOS (LLAMADOS DESDE EL LISTENER) ---
@@ -318,46 +331,89 @@ public class WoodcutterManager {
 
     /**
      * Maneja el cierre de un inventario. Si el jugador estaba en un minijuego con GUI,
-     * lo detecta y cancela el minijuego para limpiar su estado.
+     * lo detecta y cancela el minijuego para limpiar su estado de forma segura.
      * @param event El evento de cierre de inventario proporcionado por Bukkit.
      */
     public void handleInventoryClose(org.bukkit.event.inventory.InventoryCloseEvent event) {
         if (!(event.getPlayer() instanceof Player player)) return;
 
         UUID playerUUID = player.getUniqueId();
+        Minigame minigame = activeMinigames.get(playerUUID);
 
-        // Verifico si el jugador que cerró el inventario estaba en un minijuego activo.
-        if (activeMinigames.containsKey(playerUUID)) {
-            Minigame minigame = activeMinigames.get(playerUUID);
-
-            // Uso 'instanceof' para determinar si el minijuego era uno con GUI
-            // y para obtener su inventario específico.
-            Inventory minigameInventory = null;
-            if (minigame instanceof CutterMinigame cutterGame) {
-                minigameInventory = cutterGame.inventory;
-            } else if (minigame instanceof HammerMinigame hammerGame) {
-                minigameInventory = hammerGame.inventory;
-            }
-
-            // Si el inventario que se cerró es efectivamente el del minijuego...
-            if (minigameInventory != null && event.getInventory().equals(minigameInventory)) {
-                // ...lo considero un fallo, ya que el jugador abandonó el desafío.
-                // Uso un BukkitRunnable para ejecutar la lógica en el siguiente tick del servidor.
-                // Esto evita conflictos si el jugador cierra la GUI en el mismo instante en que gana.
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        // Doble chequeo para asegurar que el jugador no completó el minijuego
-                        // justo antes de que este código se ejecute.
-                        if (activeMinigames.containsKey(playerUUID)) {
-                            if (minigame instanceof CutterMinigame cutterGame) {
-                                cutterGame.fail();
-                            } else if (minigame instanceof HammerMinigame hammerGame) {
-                                hammerGame.fail();
-                            }
+        // Si el jugador está en un minijuego y el inventario cerrado es el del minijuego...
+        if (minigame != null && event.getInventory().equals(minigame.getInventory())) {
+            // ...lo considero un fallo. Uso un BukkitRunnable para asegurar que se procese
+            // en el siguiente tick, evitando cualquier conflicto con el evento de cierre.
+            new BukkitRunnable() {
+                @Override
+                public void run() {
+                    // Verifico de nuevo que el minijuego siga activo antes de fallar.
+                    // Esto evita problemas si el jugador ganó justo en el mismo tick en que cerró el inventario.
+                    if (activeMinigames.get(playerUUID) == minigame) {
+                        // Aquí no necesito saber el tipo de minijuego, simplemente lo fallo.
+                        // La lógica de `completeMinigame` se encarga del resto.
+                        if (minigame instanceof CutterMinigame cutterGame) {
+                            cutterGame.fail();
+                        } else if (minigame instanceof HammerMinigame hammerGame) {
+                            hammerGame.fail();
                         }
                     }
-                }.runTask(plugin);
+                }
+            }.runTask(plugin);
+        }
+    }
+
+    /**
+     * Mi método específico para actualizar la boss bar de un jugador.
+     * Lo llamo únicamente cuando sus datos de progreso cambian.
+     * @param player El jugador cuya barra se debe actualizar.
+     */
+    public void updatePlayerBossBar(Player player) {
+        if (player == null || !isPlayerInGame(player)) return;
+
+        UUID uuid = player.getUniqueId();
+        BossBar bb = playerBossBars.get(uuid);
+        PlayerData data = gamePlayers.get(uuid);
+        if (bb == null || data == null) return;
+
+        String stageText = "";
+        String progressText = "";
+        int maxProgress = 0;
+
+        switch (data.currentStage) {
+            case COLLECTING_LOGS -> { stageText = "§aTALA DE TRONCOS"; progressText = "Troncos"; maxProgress = 5; }
+            case CUTTING_PLANKS -> { stageText = "§eCORTE DE TABLONES"; progressText = "Ronda"; maxProgress = 5; }
+            case ASSEMBLING_TABLE -> { stageText = "§bENSAMBLAJE DE MESA"; progressText = "Ronda"; maxProgress = 3; }
+        }
+
+        String minigameProgress = "";
+        if (activeMinigames.containsKey(uuid)) {
+            minigameProgress = activeMinigames.get(uuid).getStatus();
+        }
+
+        String title = String.format("%s §f| §a%s: %d/%d §f| §cMesas: %d §f| §bTiempo: %02d:%02d %s",
+                stageText, progressText, data.stageProgress, maxProgress, data.score, gameTimeLeft / 60, gameTimeLeft % 60, minigameProgress);
+
+        bb.setTitle(title);
+    }
+
+    /**
+     * Mi método optimizado que actualiza todas las barras.
+     * Solo se llama una vez por segundo desde el gameTimer para el tiempo,
+     * o se puede llamar a 'updatePlayerBossBar' para un jugador específico.
+     */
+    private void updateBossBars() {
+        double progress = Math.max(0.0, Math.min(1.0, (double) gameTimeLeft / GAME_DURATION_SECONDS));
+        for (UUID uuid : gamePlayers.keySet()) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) {
+                // Actualizo el progreso (la barra de tiempo) para todos.
+                BossBar bb = playerBossBars.get(uuid);
+                if (bb != null) {
+                    bb.setProgress(progress);
+                }
+                // Y actualizo el texto completo para reflejar el contador de tiempo.
+                updatePlayerBossBar(p);
             }
         }
     }
@@ -411,7 +467,7 @@ public class WoodcutterManager {
             if (stageComplete) {
                 advancePlayerStage(player);
             } else {
-                updateBossBars();
+                updatePlayerBossBar(player);
             }
         } else {
             player.sendTitle(" ", ChatColor.RED + "¡Intento fallido!", 5, 40, 10);
@@ -422,14 +478,17 @@ public class WoodcutterManager {
     // --- 6. FINALIZACIÓN Y LIMPIEZA ---
 
     private void endGame(String reason) {
-        if (currentState != GameState.RUNNING) return;
+    if (currentState != GameState.RUNNING) return;
 
-        broadcastToGame(ChatColor.GOLD + "¡El juego ha terminado! Razón: " + reason);
+    broadcastToGame(ChatColor.GOLD + "¡El juego ha terminado! Razón: " + reason);
 
-        // Cancelo todos los minijuegos activos y cierro inventarios.
-        new BukkitRunnable() {
-            @Override
-            public void run() {
+        // Me aseguro de detener también mi nuevo task maestro.
+        if (minigameTickTask != null) minigameTickTask.cancel();
+
+    // Cancelo todos los minijuegos activos y cierro inventarios.
+    new BukkitRunnable() {
+      @Override
+      public void run() {
                 activeMinigames.values().forEach(Minigame::cancel);
                 activeMinigames.clear();
             }
@@ -554,10 +613,11 @@ public class WoodcutterManager {
     }
 
     private void resetGame() {
-        if (lobbyCountdownTask != null) lobbyCountdownTask.cancel();
-        if (gameTimerTask != null) gameTimerTask.cancel();
+    if (lobbyCountdownTask != null) lobbyCountdownTask.cancel();
+    if (gameTimerTask != null) gameTimerTask.cancel();
+    if (minigameTickTask != null) minigameTickTask.cancel();
 
-        getLobbyPlayers().forEach(p -> p.teleport(SAFE_EXIT_LOCATION));
+    getLobbyPlayers().forEach(p -> p.teleport(SAFE_EXIT_LOCATION));
 
         lobbyPlayers.clear();
         gamePlayers.clear();
@@ -591,44 +651,34 @@ public class WoodcutterManager {
         return gamePlayers.containsKey(player.getUniqueId());
     }
 
-    private void updateBossBars() {
-        for (Map.Entry<UUID, PlayerData> entry : gamePlayers.entrySet()) {
-            Player p = Bukkit.getPlayer(entry.getKey());
-            if (p == null) continue;
-
-            BossBar bb = playerBossBars.get(entry.getKey());
-            PlayerData data = entry.getValue();
-            if (bb == null) continue;
-
-            String stageText = "";
-            String progressText = "";
-            int maxProgress = 0;
-
-            switch (data.currentStage) {
-                case COLLECTING_LOGS -> { stageText = "§aTALA DE TRONCOS"; progressText = "Troncos"; maxProgress = 5; }
-                case CUTTING_PLANKS -> { stageText = "§eCORTE DE TABLONES"; progressText = "Ronda"; maxProgress = 5; } // Ajustado para el minijuego
-                case ASSEMBLING_TABLE -> { stageText = "§bENSAMBLAJE DE MESA"; progressText = "Ronda"; maxProgress = 3; } // Ajustado
+    // --- MÉTODOS DE AYUDA (BROADCASTS, SONIDOS, ETC) ---
+    private List<Player> getLobbyPlayers() { return lobbyPlayers.stream().map(Bukkit::getPlayer).filter(Objects::nonNull).collect(Collectors.toList()); }
+    private void broadcastToLobby(String message) {
+        for (UUID uuid : lobbyPlayers) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) {
+                p.sendMessage(message);
             }
-
-            // Añado el progreso actual del minijuego si está activo
-            String minigameProgress = "";
-            if (activeMinigames.containsKey(p.getUniqueId())) {
-                minigameProgress = activeMinigames.get(p.getUniqueId()).getStatus();
-            }
-
-            String title = String.format("%s §f| §a%s: %d/%d §f| §cMesas: %d §f| §bTiempo: %02d:%02d %s",
-                    stageText, progressText, data.stageProgress, maxProgress, data.score, gameTimeLeft / 60, gameTimeLeft % 60, minigameProgress);
-
-            bb.setTitle(title);
-            bb.setProgress(Math.max(0.0, Math.min(1.0, (double) gameTimeLeft / GAME_DURATION_SECONDS)));
         }
     }
 
-    // --- MÉTODOS DE AYUDA (BROADCASTS, SONIDOS, ETC) ---
-    private List<Player> getLobbyPlayers() { return lobbyPlayers.stream().map(Bukkit::getPlayer).filter(Objects::nonNull).collect(Collectors.toList()); }
-    private void broadcastToLobby(String message) { getLobbyPlayers().forEach(p -> p.sendMessage(message)); }
-    private void playSoundForLobby(Sound sound, float pitch) { getLobbyPlayers().forEach(p -> p.playSound(p.getLocation(), sound, 1.0f, pitch)); }
-    private void broadcastToGame(String message) { gamePlayers.keySet().stream().map(Bukkit::getPlayer).filter(Objects::nonNull).forEach(p -> p.sendMessage(message)); }
+  private void playSoundForLobby(Sound sound, float pitch) {
+        for (UUID uuid : lobbyPlayers) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) {
+                p.playSound(p.getLocation(), sound, 1.0f, pitch);
+            }
+        }
+    }
+
+  private void broadcastToGame(String message) {
+        for (UUID uuid : gamePlayers.keySet()) {
+            Player p = Bukkit.getPlayer(uuid);
+            if (p != null) {
+                p.sendMessage(message);
+            }
+        }
+    }
     private boolean validateOraxenItems() { return OraxenItems.getItemById(CUTTER_ITEM_ID) != null && OraxenItems.getItemById(HAMMER_ITEM_ID) != null; }
     private ItemStack createWoodcutterAxe() {
         ItemStack axe = new ItemStack(WOODCUTTER_AXE_MATERIAL);
@@ -663,68 +713,78 @@ public class WoodcutterManager {
     private interface Minigame {
         void start();
         void cancel();
+        void tick();
         void onPlayerInteract(PlayerInteractEvent event);
         void onInventoryClick(InventoryClickEvent event);
+
+        /**
+         * Me devuelve el inventario de la GUI del minijuego, si es que tiene uno.
+         * @return El inventario, o null si el minijuego no usa una GUI.
+         */
+        Inventory getInventory();
+
         String getStatus(); // Para mostrar info en el BossBar
     }
 
     // --- MINIJUEGO 1: HACHA (TIMING) ---
     private class AxeMinigame implements Minigame {
-        private final Player player;
-        private BukkitTask task;
-        private int progress = 0;
-        private boolean resolved = false;
+    private final Player player;
+    // private BukkitTask task; <-- YA NO NECESITO ESTO
+            private int progress = 0;
+    private boolean resolved = false;
 
-        private static final int DURATION_TICKS = 40; // 2 segundos
-        private static final int SUCCESS_START_TICK = 25; // Zona de éxito (de 1.25s a 1.75s)
-        private static final int SUCCESS_END_TICK = 35;
+    private static final int DURATION_TICKS = 40; // 2 segundos
+    private static final int SUCCESS_START_TICK = 25;
+    private static final int SUCCESS_END_TICK = 30;
 
-        AxeMinigame(Player player) { this.player = player; }
+    AxeMinigame(Player player) { this.player = player; }
 
+    @Override
+    public void start() {
+      player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1.0f, 0.5f);
+    }
+
+        // Este es mi nuevo método que será llamado por el task maestro 20 veces por segundo.
         @Override
-        public void start() {
-            player.playSound(player.getLocation(), Sound.ENTITY_ITEM_PICKUP, 1.0f, 0.5f);
-            this.task = new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (progress > DURATION_TICKS) {
-                        fail();
-                        return;
-                    }
-                    displayProgressBar();
-                    progress++;
-                }
-            }.runTaskTimer(plugin, 0L, 1L);
-        }
-
-        public void resolveAttempt() {
-            if (resolved) return; // Evito múltiples resoluciones.
-            if (progress >= SUCCESS_START_TICK && progress <= SUCCESS_END_TICK) succeed();
-            else fail();
-        }
-
-        private void succeed() {
+        public void tick() {
             if (resolved) return;
-            resolved = true;
-            task.cancel();
-            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.GREEN + "¡Corte perfecto!"));
-            completeMinigame(player, true, PlayerStage.COLLECTING_LOGS);
+
+            if (progress > DURATION_TICKS) {
+                fail();
+                return;
+            }
+            displayProgressBar();
+            progress++;
         }
 
-        private void fail() {
-            if (resolved) return;
-            resolved = true;
-            task.cancel();
-            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.RED + "¡Fallaste!"));
-            completeMinigame(player, false, PlayerStage.COLLECTING_LOGS);
-        }
+    public void resolveAttempt() {
+      if (resolved) return; // Evito múltiples resoluciones.
+      if (progress >= SUCCESS_START_TICK && progress <= SUCCESS_END_TICK) succeed();
+      else fail();
+    }
 
-        @Override
-        public void cancel() {
-            if (task != null && !task.isCancelled()) task.cancel();
-            resolved = true;
-            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(""));
-        }
+    private void succeed() {
+      if (resolved) return;
+      resolved = true;
+      // task.cancel(); <-- YA NO ES NECESARIO
+      player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.GREEN + "¡Corte perfecto!"));
+      completeMinigame(player, true, PlayerStage.COLLECTING_LOGS);
+    }
+
+    private void fail() {
+      if (resolved) return;
+      resolved = true;
+      // task.cancel(); <-- YA NO ES NECESARIO
+      player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.RED + "¡Fallaste!"));
+      completeMinigame(player, false, PlayerStage.COLLECTING_LOGS);
+    }
+
+    @Override
+    public void cancel() {
+      // if (task != null && !task.isCancelled()) task.cancel(); <-- YA NO ES NECESARIO
+      resolved = true;
+      player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(""));
+    }
 
         private void displayProgressBar() {
             if (!player.isOnline()) {
@@ -770,6 +830,16 @@ public class WoodcutterManager {
         @Override
         public void onInventoryClick(InventoryClickEvent event) { /* No aplica a este minijuego */ }
 
+        /**
+         * Este minijuego no tiene una GUI, así que devuelvo null
+         * como lo requiere el contrato de la interfaz Minigame.
+         * @return null siempre.
+         */
+        @Override
+        public Inventory getInventory() {
+            return null;
+        }
+
         @Override
         public String getStatus() { return "§f(§e¡CLIC!§f)"; }
     }
@@ -778,15 +848,25 @@ public class WoodcutterManager {
     private class CutterMinigame implements Minigame {
         private final Player player;
         private final Inventory inventory;
-        private BukkitTask sequenceTask;
+
+        // --- ESTADO Y LÓGICA DE TICKS (SIN BUKKIT_TASK INTERNO) ---
         private final List<Integer> sequence = new ArrayList<>();
         private int currentRound = 0;
         private int playerSequencePosition = 0;
         private boolean playerTurn = false;
+        private boolean resolved = false;
+
+        // Variables para controlar la animación de la secuencia con el tick maestro.
+        private boolean showingSequence = false;
+        private int sequenceIndexToShow = 0;
+        private long nextFlashTick = 0;
+        private int slotToFlash = -1;
 
         private final Material[] colors = {Material.LIME_STAINED_GLASS_PANE, Material.PURPLE_STAINED_GLASS_PANE, Material.BLUE_STAINED_GLASS_PANE, Material.YELLOW_STAINED_GLASS_PANE, Material.ORANGE_STAINED_GLASS_PANE};
         private final int[] slots = {11, 12, 13, 14, 15};
         private static final int TOTAL_ROUNDS = 5;
+        private static final long SEQUENCE_FLASH_DELAY_TICKS = 15L; // Tiempo entre cada flash
+        private static final long SEQUENCE_FLASH_DURATION_TICKS = 10L; // Cuánto tiempo se muestra el flash
 
         CutterMinigame(Player player) {
             this.player = player;
@@ -801,55 +881,77 @@ public class WoodcutterManager {
         }
 
         private void nextRound() {
+            // Reseteo el estado para la nueva ronda
             playerTurn = false;
-            currentRound++;
+            showingSequence = true;
+            sequenceIndexToShow = 0;
             playerSequencePosition = 0;
+            currentRound++;
 
-            // Actualizo la barra de progreso del jugador principal
             if(gamePlayers.containsKey(player.getUniqueId())) {
-                gamePlayers.get(player.getUniqueId()).stageProgress = currentRound -1;
-                updateBossBars();
+                gamePlayers.get(player.getUniqueId()).stageProgress = currentRound - 1;
+                updatePlayerBossBar(player);
             }
 
             inventory.setItem(4, createGuiItem(Material.BOOK, "§eMostrando Ronda " + currentRound + "/" + TOTAL_ROUNDS));
-
             sequence.add(new Random().nextInt(colors.length));
-            showSequence();
+
+            // Empiezo a mostrar la secuencia después de 1 segundo (20 ticks).
+            nextFlashTick = plugin.getServer().getCurrentTick() + 20L;
         }
 
-        private void showSequence() {
-            final Iterator<Integer> iterator = sequence.iterator();
-            sequenceTask = new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (!player.isOnline() || !inventory.getViewers().contains(player)) {
-                        this.cancel();
-                        return;
-                    }
-                    if (!iterator.hasNext()) {
-                        playerTurn = true;
-                        inventory.setItem(4, createGuiItem(Material.GREEN_WOOL, "§a¡Tu turno! Repite la secuencia"));
-                        this.cancel();
-                        return;
-                    }
-                    int colorIndex = iterator.next();
-                    int slot = slots[colorIndex];
-                    ItemStack original = createGuiItem(colors[colorIndex], "§r");
-                    inventory.setItem(slot, createGuiItem(Material.GLOWSTONE, "§e..."));
-                    player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f + (colorIndex * 0.2f));
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            if (inventory.getViewers().contains(player)) inventory.setItem(slot, original);
-                        }
-                    }.runTaskLater(plugin, 10L);
+        /**
+         * Este método es el corazón de la optimización y la corrección.
+         * Es llamado 20 veces por segundo y gestiona la animación de la secuencia,
+         * eliminando el delay que causaba el problema de desincronización.
+         */
+        @Override
+        public void tick() {
+            if (resolved || !showingSequence) return;
+            if (!player.isOnline() || !inventory.getViewers().contains(player)) {
+                fail();
+                return;
+            }
+
+            long currentTick = plugin.getServer().getCurrentTick();
+
+            // Lógica para APAGAR un panel que ya se mostró.
+            if (slotToFlash != -1 && currentTick >= nextFlashTick) {
+                int colorIndex = sequence.get(sequenceIndexToShow - 1);
+                inventory.setItem(slotToFlash, createGuiItem(colors[colorIndex], "§r")); // Lo apago.
+                slotToFlash = -1; // Marco que ya no hay un panel encendido.
+
+                // MI CORRECCIÓN: Verifico si ese era el ÚLTIMO panel de la secuencia.
+                if (sequenceIndexToShow >= sequence.size()) {
+                    // Si es así, la animación terminó. Habilito el turno del jugador INMEDIATAMENTE.
+                    showingSequence = false;
+                    playerTurn = true;
+                    inventory.setItem(4, createGuiItem(Material.GREEN_WOOL, "§a¡Tu turno! Repite la secuencia"));
+                } else {
+                    // Si aún faltan paneles, establezco el delay para mostrar el siguiente.
+                    nextFlashTick = currentTick + SEQUENCE_FLASH_DELAY_TICKS;
                 }
-            }.runTaskTimer(plugin, 20L, 15L);
+            }
+            // Lógica para ENCENDER el siguiente panel de la secuencia.
+            else if (slotToFlash == -1 && currentTick >= nextFlashTick) {
+                // Me aseguro de que todavía queden paneles por mostrar.
+                if (sequenceIndexToShow < sequence.size()) {
+                    int colorIndex = sequence.get(sequenceIndexToShow);
+                    slotToFlash = slots[colorIndex];
+                    inventory.setItem(slotToFlash, createGuiItem(Material.GLOWSTONE, "§e..."));
+                    player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f + (colorIndex * 0.2f));
+
+                    sequenceIndexToShow++;
+                    // Establezco cuánto tiempo durará encendido el panel.
+                    nextFlashTick = currentTick + SEQUENCE_FLASH_DURATION_TICKS;
+                }
+                // Ya no hay un 'else' aquí, porque el final de la secuencia se maneja arriba.
+            }
         }
 
         @Override
         public void onInventoryClick(InventoryClickEvent event) {
-            if (!playerTurn || event.getClickedInventory() != inventory) return;
+            if (resolved || !playerTurn || event.getClickedInventory() != inventory) return;
 
             int clickedSlot = event.getSlot();
             int colorIndexClicked = -1;
@@ -859,18 +961,19 @@ public class WoodcutterManager {
                     break;
                 }
             }
-            if (colorIndexClicked == -1) return; // Clic en un slot no válido
+            if (colorIndexClicked == -1) return;
 
-            int expectedColorIndex = sequence.get(playerSequencePosition);
-
-            if (colorIndexClicked == expectedColorIndex) {
-                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f + (expectedColorIndex * 0.2f));
+            if (colorIndexClicked == sequence.get(playerSequencePosition)) {
+                player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1f, 1f + (colorIndexClicked * 0.2f));
                 playerSequencePosition++;
+
                 if (playerSequencePosition >= sequence.size()) {
                     if (currentRound >= TOTAL_ROUNDS) {
                         succeed();
                     } else {
                         player.playSound(player.getLocation(), Sound.ENTITY_ARROW_HIT_PLAYER, 1f, 1.5f);
+                        // El jugador acertó la secuencia, preparo la siguiente ronda.
+                        // 'playerTurn' se vuelve 'false' inmediatamente para evitar clics extra.
                         nextRound();
                     }
                 }
@@ -880,25 +983,32 @@ public class WoodcutterManager {
         }
 
         private void succeed() {
+            if (resolved) return;
+            resolved = true;
             if (gamePlayers.containsKey(player.getUniqueId())) {
                 gamePlayers.get(player.getUniqueId()).stageProgress = TOTAL_ROUNDS;
             }
+            completeMinigame(player, true, PlayerStage.CUTTING_PLANKS);
             player.closeInventory();
             player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.2f);
-            completeMinigame(player, true, PlayerStage.CUTTING_PLANKS);
         }
 
         private void fail() {
+            if (resolved) return;
+            resolved = true;
+            completeMinigame(player, false, PlayerStage.CUTTING_PLANKS);
             player.closeInventory();
             player.playSound(player.getLocation(), Sound.ENTITY_VILLAGER_NO, 1f, 1f);
-            completeMinigame(player, false, PlayerStage.CUTTING_PLANKS);
         }
 
         @Override
         public void cancel() {
-            if (sequenceTask != null && !sequenceTask.isCancelled()) sequenceTask.cancel();
+            resolved = true;
             player.closeInventory();
         }
+
+        @Override
+        public Inventory getInventory() { return this.inventory; }
 
         @Override
         public void onPlayerInteract(PlayerInteractEvent event) { /* No aplica */ }
@@ -911,19 +1021,41 @@ public class WoodcutterManager {
     private class HammerMinigame implements Minigame {
         private final Player player;
         private final Inventory inventory;
-        private BukkitTask spawnerTask, roundTimerTask;
-        private final Set<Integer> activeNails = new HashSet<>();
+
+        // Almaceno el 'tick' del servidor en que cada clavo apareció.
+        // La clave es el slot, el valor es el tick. Es concurrente por seguridad.
+        private final Map<Integer, Long> activeNails = new ConcurrentHashMap<>();
+
         private int currentRound = 0;
         private int hits = 0;
+        private boolean resolved = false;
+
+        // Contadores de tiempo basados en ticks, para no usar tasks internos.
+        private long roundStartTick;
+        private long nextNailSpawnTick;
 
         private final int[] slots = {10, 11, 12, 13, 14, 15, 16};
         private static final int TOTAL_ROUNDS = 3;
         private static final int HITS_PER_ROUND = 5;
-        private static final int ROUND_DURATION_TICKS = 100; // 5 segundos
+
+        // Duraciones en ticks (20 ticks = 1 segundo), fáciles de ajustar.
+        private static final long ROUND_DURATION_TICKS = 100L; // 5 segundos
+        private static final long NAIL_LIFETIME_TICKS = 30L;   // 1.5 segundos
+        private static final long NAIL_SPAWN_INTERVAL_TICKS = 10L; // 0.5 segundos
 
         HammerMinigame(Player player) {
             this.player = player;
             this.inventory = Bukkit.createInventory(null, 27, "§fENSAMBLAJE: ¡Clava rápido!");
+        }
+
+        /**
+         * Devuelvo la instancia del inventario de este minijuego,
+         * cumpliendo con el contrato de la interfaz.
+         * @return El inventario del minijuego.
+         */
+        @Override
+        public Inventory getInventory() {
+            return this.inventory;
         }
 
         @Override
@@ -934,127 +1066,146 @@ public class WoodcutterManager {
         }
 
         private void nextRound() {
-            currentRound++;
-            hits = 0;
-            activeNails.clear();
-            if (spawnerTask != null) spawnerTask.cancel();
-            if (roundTimerTask != null) roundTimerTask.cancel();
+            this.currentRound++;
+            this.hits = 0;
+            this.activeNails.clear();
 
-            if(gamePlayers.containsKey(player.getUniqueId())) {
-                gamePlayers.get(player.getUniqueId()).stageProgress = currentRound - 1;
-                updateBossBars();
+            // Limpio el inventario visualmente para evitar clavos de la ronda anterior.
+            for (int slot : slots) {
+                inventory.setItem(slot, GUI_FILLER);
             }
 
+            // Reseteo los contadores de tiempo para la nueva ronda
+            long currentTick = plugin.getServer().getCurrentTick();
+            this.roundStartTick = currentTick;
+            this.nextNailSpawnTick = currentTick;
+
+            if (gamePlayers.containsKey(player.getUniqueId())) {
+                gamePlayers.get(player.getUniqueId()).stageProgress = currentRound - 1;
+                updatePlayerBossBar(player);
+            }
             inventory.setItem(4, createGuiItem(Material.CLOCK, "§eRonda " + currentRound + "/" + TOTAL_ROUNDS, "§aClavos: 0/" + HITS_PER_ROUND));
-
-            spawnerTask = new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (!player.isOnline() || !inventory.getViewers().contains(player)) {
-                        this.cancel();
-                        return;
-                    }
-                    if (activeNails.size() < 3) spawnNail();
-                }
-            }.runTaskTimer(plugin, 0, 10L);
-
-            roundTimerTask = new BukkitRunnable() {
-                @Override
-                public void run() {
-                    if (!player.isOnline() || !inventory.getViewers().contains(player)) return;
-                    if (hits < HITS_PER_ROUND) fail();
-                }
-            }.runTaskLater(plugin, ROUND_DURATION_TICKS);
         }
 
-        private void spawnNail() {
-            int slot = slots[new Random().nextInt(slots.length)];
-            if (!activeNails.contains(slot)) {
-                activeNails.add(slot);
+        /**
+         * Este es el corazón de la optimización. Se llama cada tick desde el task maestro
+         * y gestiona el tiempo, la aparición y la expiración de los clavos sin crear nuevas tareas.
+         */
+        @Override
+        public void tick() {
+            if (resolved) return;
+
+            // Si el jugador cierra el inventario o se desconecta, el minijuego falla.
+            if (!player.isOnline() || !inventory.getViewers().contains(player)) {
+                fail();
+                return;
+            }
+
+            long currentTick = plugin.getServer().getCurrentTick();
+
+            // 1. Verifico si la ronda se acabó por tiempo.
+            if (currentTick > roundStartTick + ROUND_DURATION_TICKS) {
+                fail(); // Si ya ganó, 'resolved' sería true y esta línea no se alcanzaría.
+                return;
+            }
+
+            // 2. Verifico si un clavo existente debe expirar usando removeIf, que es eficiente.
+            activeNails.entrySet().removeIf(entry -> {
+                if (currentTick > entry.getValue() + NAIL_LIFETIME_TICKS) {
+                    inventory.setItem(entry.getKey(), GUI_FILLER);
+                    return true; // Elimina el clavo del mapa.
+                }
+                return false;
+            });
+
+            // 3. Verifico si debo generar un nuevo clavo.
+            if (currentTick >= nextNailSpawnTick && activeNails.size() < 3) {
+                spawnNail(currentTick);
+                this.nextNailSpawnTick = currentTick + NAIL_SPAWN_INTERVAL_TICKS;
+            }
+        }
+
+        private void spawnNail(long currentTick) {
+            // Lógica para encontrar un slot vacío de forma segura.
+            int slot;
+            int attempts = 0;
+            do {
+                slot = slots[ThreadLocalRandom.current().nextInt(slots.length)];
+                attempts++;
+            } while (activeNails.containsKey(slot) && attempts < 20);
+
+            if (!activeNails.containsKey(slot)) {
+                activeNails.put(slot, currentTick);
                 inventory.setItem(slot, NAIL_ITEM);
                 player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BIT, 1f, 0.8f);
-                new BukkitRunnable() {
-                    @Override
-                    public void run() {
-                        // Si el clavo se elimina aquí, es porque el jugador no lo golpeó a tiempo.
-                        // El método .remove() devuelve true si el elemento existía y fue eliminado.
-                        if (activeNails.remove(slot) && inventory.getViewers().contains(player)) {
-                            inventory.setItem(slot, GUI_FILLER);
-                        }
-                        // Si .remove() devuelve false, es porque onInventoryClick ya lo eliminó (un golpe exitoso).
-                    }
-                    // --- MI CORRECCIÓN (INICIO) ---
-                    // Aumento el tiempo de vida del clavo de 1.5s a 2s (30 -> 40 ticks).
-                    // Esto le da al jugador un margen de reacción más justo, reduciendo la
-                    // posibilidad de que el clavo expire justo cuando el jugador hace clic.
-                }.runTaskLater(plugin, 40L);
-                // --- MI CORRECCIÓN (FIN) ---
             }
         }
 
         @Override
         public void onInventoryClick(InventoryClickEvent event) {
-            if (event.getClickedInventory() != inventory) return;
+            if (resolved || event.getClickedInventory() != inventory) return;
 
-            // --- MI CORRECCIÓN (INICIO) ---
-            // Añado una doble verificación para máxima robustez.
-            // 1. Verifico que el ítem clickeado sea visualmente un clavo.
-            // 2. La operación activeNails.remove() sigue siendo la clave, ya que es atómica y
-            //    resuelve la "carrera" entre el clic del jugador y el temporizador de expiración.
+            // Verifico que el ítem sea un clavo para evitar procesar clics en otros ítems.
             if (event.getCurrentItem() == null || !event.getCurrentItem().isSimilar(NAIL_ITEM)) {
-                return; // Si no es un clavo (o es un slot vacío), no hago nada.
+                return;
             }
-            // --- MI CORRECCIÓN (FIN) ---
 
             int slot = event.getSlot();
 
-            // Si .remove(slot) devuelve true, significa que el clic fue exitoso y a tiempo.
-            if(activeNails.remove(slot)) {
+            // La operación .remove() es atómica. Si devuelve no-null, el clic fue exitoso y a tiempo.
+            if (activeNails.remove(slot) != null) {
                 hits++;
                 player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_PLACE, 1f, 1.5f);
                 inventory.setItem(slot, HIT_NAIL_ITEM);
-                new BukkitRunnable() { @Override public void run() { if (inventory.getViewers().contains(player)) inventory.setItem(slot, GUI_FILLER); } }.runTaskLater(plugin, 5L);
+
+                // Desaparece el clavo golpeado tras un breve instante.
+                // Este es uno de los pocos usos aceptables de runTaskLater, ya que es para un efecto visual breve.
+                new BukkitRunnable() {
+                    @Override public void run() { if (inventory.getViewers().contains(player)) inventory.setItem(slot, GUI_FILLER); }
+                }.runTaskLater(plugin, 5L);
+
                 inventory.setItem(4, createGuiItem(Material.CLOCK, "§eRonda " + currentRound + "/" + TOTAL_ROUNDS, "§aClavos: " + hits + "/" + HITS_PER_ROUND));
 
                 if (hits >= HITS_PER_ROUND) {
-                    roundTimerTask.cancel(); // Detengo el timer de la ronda, la pasó.
                     if (currentRound >= TOTAL_ROUNDS) {
                         succeed();
                     } else {
                         player.playSound(player.getLocation(), Sound.ENTITY_ARROW_HIT_PLAYER, 1f, 1.5f);
-                        new BukkitRunnable() { @Override public void run() { nextRound(); } }.runTaskLater(plugin, 20L); // Pequeña pausa
+                        // Doy una pequeña pausa antes de iniciar la siguiente ronda.
+                        new BukkitRunnable() {
+                            @Override public void run() { if (!resolved) nextRound(); }
+                        }.runTaskLater(plugin, 20L);
                     }
                 }
             }
-            // Si .remove(slot) devuelve false, significa que el clavo ya había sido eliminado por el temporizador.
-            // El clic fue demasiado tarde, así que no se procesa nada.
+            // Si .remove(slot) devuelve null, el clavo ya expiró. No se hace nada.
         }
 
         private void succeed() {
+            if (resolved) return;
+            this.resolved = true;
+
             if (gamePlayers.containsKey(player.getUniqueId())) {
                 gamePlayers.get(player.getUniqueId()).stageProgress = TOTAL_ROUNDS;
             }
-            cancelTasks();
+
+            completeMinigame(player, true, PlayerStage.ASSEMBLING_TABLE);
             player.closeInventory();
             player.playSound(player.getLocation(), Sound.BLOCK_SMITHING_TABLE_USE, 1f, 1.2f);
-            completeMinigame(player, true, PlayerStage.ASSEMBLING_TABLE);
         }
 
         private void fail() {
-            cancelTasks();
+            if (resolved) return;
+            this.resolved = true;
+
+            completeMinigame(player, false, PlayerStage.ASSEMBLING_TABLE);
             player.closeInventory();
             player.playSound(player.getLocation(), Sound.BLOCK_CHAIN_BREAK, 1.0f, 1.0f);
-            completeMinigame(player, false, PlayerStage.ASSEMBLING_TABLE);
-        }
-
-        private void cancelTasks() {
-            if (spawnerTask != null) spawnerTask.cancel();
-            if (roundTimerTask != null) roundTimerTask.cancel();
         }
 
         @Override
         public void cancel() {
-            cancelTasks();
+            this.resolved = true;
             player.closeInventory();
         }
 
