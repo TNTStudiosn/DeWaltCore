@@ -11,27 +11,26 @@ import org.jetbrains.annotations.NotNull;
  */
 public class MazeCommand implements CommandExecutor {
 
-    private final MazeManager mazeManager;
+  private final MazeManager mazeManager;
 
-    public MazeCommand(MazeManager mazeManager) {
-        this.mazeManager = mazeManager;
+  public MazeCommand(MazeManager mazeManager) {
+    this.mazeManager = mazeManager;
+  }
+
+  @Override
+  public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
+    if (!(sender instanceof Player player)) {
+      sender.sendMessage("Este comando solo puede ser ejecutado por un jugador.");
+      return true;
     }
 
-    @Override
-    public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Este comando solo puede ser ejecutado por un jugador.");
-            return true;
-        }
-
-        // El comando /empezar ahora lleva al pre-lobby.
-        if (command.getName().equalsIgnoreCase("empezar")) {
-            mazeManager.joinPreLobby(player);
-        } else if (command.getName().equalsIgnoreCase("detener")) {
-            // El comando /detener ahora usa el nuevo método para salir y teletransportar.
-            mazeManager.leaveGame(player, true);
-        }
-
-        return true;
+    // El comando /empezar ahora lleva al pre-lobby.
+    if (command.getName().equalsIgnoreCase("empezar")) {
+      mazeManager.joinPreLobby(player);
+    } else if (command.getName().equalsIgnoreCase("detener")) {
+      mazeManager.finishMaze(player);
     }
+
+    return true;
+  }
 }

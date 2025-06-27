@@ -191,13 +191,13 @@ public class PointsManager {
         String reason;
 
         if (bestTime == -1) {
-            pointsAwarded = 10;
+            pointsAwarded = 20;
             reason = "Primera finalización";
             config.set("minigames." + minigameId + ".best-time", newTime);
         } else if (newTime < bestTime) {
             pointsAwarded = switch (improvementCount) {
-                case 0 -> 5;
-                case 1 -> 2;
+                case 0 -> 10;
+                case 1 -> 5;
                 default -> 1;
             };
             reason = "Nuevo mejor tiempo";
