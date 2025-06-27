@@ -10,6 +10,7 @@ import org.bukkit.*;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.entity.Player;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -308,5 +309,20 @@ public class MazeManager {
         public void setTask(BukkitTask task) { this.task = task; }
         public BoltCutterMinigame getActiveMinigame() { return activeMinigame; }
         public void setActiveMinigame(BoltCutterMinigame minigame) { this.activeMinigame = minigame; }
+    }
+
+    /**
+     * Pasa el evento de interacción al minijuego de corte activo del jugador.
+     * Así me aseguro de que la instancia correcta procesa el clic.
+     * @param player El jugador que interactúa.
+     * @param event El evento de interacción.
+     */
+    public void handleMinigameInteract(Player player, PlayerInteractEvent event) {
+        PlayerData data = playerStates.get(player.getUniqueId());
+
+        // Me aseguro de que el jugador tiene datos y un minijuego activo para evitar errores.
+        if (data != null && data.getState() == PlayerState.IN_CUTTER_MINIGAME && data.getActiveMinigame() != null) {
+            data.getActiveMinigame().onPlayerInteract(event);
+        }
     }
 }

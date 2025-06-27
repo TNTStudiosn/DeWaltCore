@@ -33,10 +33,11 @@ public class MinigameListener implements Listener {
 
         // Si el jugador está en el minijuego de corte, le paso el evento para que lo procese.
         if (mazeManager.getPlayerState(player) == MazeManager.PlayerState.IN_CUTTER_MINIGAME) {
-            // Aquí debería haber una referencia al minijuego activo, lo gestiono desde MazeManager.
-            // Para mantenerlo simple por ahora, asumiré que el manager tiene un método que lo delega.
-            // Esto lo implementé en la refactorización de MazeManager y BoltCutterMinigame.
-            return; // El minijuego activo se encargará del evento.
+            // Le delego el evento al MazeManager para que lo envíe al minijuego correcto.
+            mazeManager.handleMinigameInteract(player, event);
+            // Importante: detengo la ejecución para no procesar la lógica de abajo,
+            // que intentaría iniciar OTRO minijuego.
+            return;
         }
 
         // Reviso si el jugador intenta usar el corta pernos.
