@@ -18,6 +18,9 @@ import org.bukkit.scheduler.BukkitRunnable;
 import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterCommand;
 import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterListener;
 import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterManager;
+import com.TNTStudios.deWaltCore.registration.EmailValidator;
+import com.TNTStudios.deWaltCore.registration.RegistrationListener;
+import com.TNTStudios.deWaltCore.registration.RegistrationManager;
 
 public final class DeWaltCore extends JavaPlugin {
 
@@ -25,11 +28,19 @@ public final class DeWaltCore extends JavaPlugin {
     private MazeManager mazeManager;
     private DrillManager drillManager;
     private WoodcutterManager woodcutterManager;
-    // --- MI NUEVO MANAGER ---
     private ConcreteManager concreteManager;
+    private RegistrationManager registrationManager;
+    private EmailValidator emailValidator;
 
     @Override
     public void onEnable() {
+        // --- MI NUEVO SISTEMA DE REGISTRO ---
+        getLogger().info("Inicializando el sistema de registro de jugadores...");
+        this.registrationManager = new RegistrationManager(this);
+        this.emailValidator = new EmailValidator(this);
+        getServer().getPluginManager().registerEvents(new RegistrationListener(this.registrationManager, this.emailValidator), this);
+        getLogger().info("Sistema de registro cargado correctamente.");
+
         // --- Scoreboard y Registro ---
         getServer().getPluginManager().registerEvents(new ScoreboardListener(), this);
 
