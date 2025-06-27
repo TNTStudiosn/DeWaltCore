@@ -14,7 +14,7 @@ import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterListener;
 import com.TNTStudios.deWaltCore.minigames.woodcutter.WoodcutterManager;
 import com.TNTStudios.deWaltCore.minigames.maze.MazeCommand;
 import com.TNTStudios.deWaltCore.minigames.maze.MazeManager;
-import com.TNTStudios.deWaltCore.minigames.MinigameListener;
+import com.TNTStudios.deWaltCore.minigames.maze.MinigameListener;
 import com.TNTStudios.deWaltCore.points.PointsManager;
 import com.TNTStudios.deWaltCore.scoreboard.ScoreboardListener;
 import com.TNTStudios.deWaltCore.registration.EmailValidator;
@@ -25,6 +25,7 @@ import org.bukkit.scheduler.BukkitRunnable;
 
 public final class DeWaltCore extends JavaPlugin {
 
+    private static DeWaltCore instance;
     private static PointsManager pointsManager;
     private MazeManager mazeManager;
     private DrillManager drillManager;
@@ -36,6 +37,7 @@ public final class DeWaltCore extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        instance = this;
         // Guardar la configuración por defecto (crea config.yml si no existe)
         saveDefaultConfig();
 
@@ -131,5 +133,15 @@ public final class DeWaltCore extends JavaPlugin {
      */
     public RegistrationManager getRegistrationManager() {
         return registrationManager;
+    }
+
+    // AÑADE ESTE MÉTODO COMPLETO
+    /**
+     * Me permite obtener la instancia principal del plugin desde cualquier clase.
+     * Esencial para registrar tareas y eventos de forma segura.
+     * @return La instancia de DeWaltCore.
+     */
+    public static DeWaltCore getInstance() {
+        return instance;
     }
 }

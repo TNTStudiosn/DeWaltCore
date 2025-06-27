@@ -24,10 +24,12 @@ public class MazeCommand implements CommandExecutor {
             return true;
         }
 
+        // El comando /empezar ahora lleva al pre-lobby.
         if (command.getName().equalsIgnoreCase("empezar")) {
-            mazeManager.startMaze(player);
+            mazeManager.joinPreLobby(player);
         } else if (command.getName().equalsIgnoreCase("detener")) {
-            mazeManager.finishMaze(player);
+            // El comando /detener ahora usa el nuevo método para salir y teletransportar.
+            mazeManager.leaveGame(player, true);
         }
 
         return true;
