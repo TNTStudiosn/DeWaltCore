@@ -80,8 +80,6 @@ public class RegistrationListener implements Listener {
         registrationManager.registerPlayer(playerUUID, email);
         player.sendMessage(ChatColor.GREEN + "¡Registro completado con éxito! Gracias por unirte.");
 
-        // Lo muevo al hilo principal para el teleport, que es una acción que debe hacerse ahí.
-        new PlayerTeleportTask(player, registrationManager).runTask(registrationManager.plugin);
     }
 
     @EventHandler
@@ -120,24 +118,6 @@ public class RegistrationListener implements Listener {
     public void onInventoryClick(InventoryClickEvent event) {
         if (event.getWhoClicked() instanceof Player && pendingRegistration.contains(event.getWhoClicked().getUniqueId())) {
             event.setCancelled(true);
-        }
-    }
-
-    // Tarea auxiliar para teletransportar al jugador en el hilo principal de Bukkit.
-    private static class PlayerTeleportTask extends org.bukkit.scheduler.BukkitRunnable {
-        private final Player player;
-        private final RegistrationManager registrationManager;
-
-        PlayerTeleportTask(Player player, RegistrationManager rm) {
-            this.player = player;
-            this.registrationManager = rm;
-        }
-
-        @Override
-        public void run() {
-            if (player.isOnline()) { // Me aseguro de que el jugador sigue conectado.
-                registrationManager.teleportToRegisteredSpawn(player);
-            }
         }
     }
 }
