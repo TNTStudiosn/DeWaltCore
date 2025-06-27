@@ -1,80 +1,66 @@
 package com.TNTStudios.deWaltCore.minigames.maze;
 
-import com.TNTStudios.deWaltCore.DeWaltCore;
 import net.md_5.bungee.api.ChatMessageType;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.ChatColor;
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
-import org.bukkit.event.block.Action;
 import org.bukkit.event.player.PlayerInteractEvent;
-import org.bukkit.scheduler.BukkitRunnable;
-import org.bukkit.scheduler.BukkitTask;
 
 import java.util.function.Consumer;
 
 /**
  * Mi minijuego para la cortadora de pernos. Se activa al hacer clic derecho en un barrote.
- * Está optimizado para correr con su propia tarea y notificar al MazeManager cuando termina.
+ * OPTIMIZADO: Ya no gestiona su propio temporizador. Es un objeto de estado
+ * que es "tickeado" por el MazeManager para máxima eficiencia.
  */
 public class BoltCutterMinigame {
 
     private final Player player;
-    private final Consumer<Boolean> onComplete; // Callback para notificar el resultado (true=éxito, false=fallo).
-    private BukkitTask task;
+    private final Consumer<Boolean> onComplete;
     private int progress = 0;
     private boolean resolved = false;
-    private boolean acceptingInput = false; // Mi nuevo flag para controlar el input y evitar doble-clicks.
 
-    // Defino los parámetros del minijuego.
-    private static final int DURATION_TICKS = 40; // 2 segundos de duración total.
-    private static final int SUCCESS_START_TICK = 25; // Inicio de la zona verde.
-    private static final int SUCCESS_END_TICK = 30; // Fin de la zona verde.
-    private static final int INPUT_DELAY_TICKS = 4; // Mi pequeño delay de 4 ticks (0.2s) para registrar el click.
+    // Los parámetros del minijuego no cambian.
+    private static final int DURATION_TICKS = 40; // 2 segundos
+    private static final int SUCCESS_START_TICK = 25;
+    private static final int SUCCESS_END_TICK = 30;
+    private static final int INPUT_DELAY_TICKS = 4;
+
+    // MI NUEVO CAMPO para limitar el envío de paquetes de la action bar.
+    private String lastProgressBar = "";
 
     public BoltCutterMinigame(Player player, Consumer<Boolean> onComplete) {
         this.player = player;
         this.onComplete = onComplete;
-    }
-
-    public void start() {
         player.playSound(player.getLocation(), Sound.BLOCK_DISPENSER_FAIL, 1.0f, 1.5f);
-        this.task = new BukkitRunnable() {
-            @Override
-            public void run() {
-                tick();
-            }
-        }.runTaskTimer(DeWaltCore.getInstance(), 0L, 1L); // Se ejecuta cada tick para mayor fluidez.
     }
 
-    private void tick() {
+    /**
+     * El MazeManager llamará a este método cada tick.
+     * Aquí va toda la lógica que antes estaba en el BukkitRunnable.
+     */
+    public void tick() {
         if (resolved) return;
 
-        // Una vez que pasa el delay inicial, permito que el jugador interactúe.
-        if (!acceptingInput && progress >= INPUT_DELAY_TICKS) {
-            acceptingInput = true;
-        }
-
+        // Si el progreso supera la duración, el jugador ha fallado.
         if (progress > DURATION_TICKS) {
             fail();
             return;
         }
+
         displayProgressBar();
         progress++;
     }
 
     public void onPlayerInteract(PlayerInteractEvent event) {
-        // Ignoro el click si el minijuego acaba de empezar (para prevenir el doble click).
-        if (!acceptingInput) {
+        // La lógica de interacción no cambia, pero ahora es más segura.
+        if (progress < INPUT_DELAY_TICKS) {
             event.setCancelled(true);
             return;
         }
-
-        // El minijuego se resuelve con cualquier click derecho.
-        if (event.getAction() == Action.RIGHT_CLICK_AIR || event.getAction() == Action.RIGHT_CLICK_BLOCK) {
-            event.setCancelled(true);
-            resolveAttempt();
-        }
+        event.setCancelled(true);
+        resolveAttempt();
     }
 
     private void resolveAttempt() {
@@ -89,7 +75,6 @@ public class BoltCutterMinigame {
     private void succeed() {
         if (resolved) return;
         resolved = true;
-        task.cancel();
         player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.GREEN + "¡Corte perfecto!"));
         onComplete.accept(true);
     }
@@ -97,16 +82,13 @@ public class BoltCutterMinigame {
     private void fail() {
         if (resolved) return;
         resolved = true;
-        task.cancel();
         player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(ChatColor.RED + "¡Fallaste! Inténtalo de nuevo."));
         player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_LAND, 1.0f, 1.5f);
         onComplete.accept(false);
     }
 
+    // Este método es para cuando un jugador se desconecta o sale del juego.
     public void cancel() {
-        if (task != null && !task.isCancelled()) {
-            task.cancel();
-        }
         resolved = true;
     }
 
@@ -118,21 +100,26 @@ public class BoltCutterMinigame {
 
         StringBuilder bar = new StringBuilder();
         int totalChars = 30;
-        // Calculo las posiciones para la barra de progreso.
         int greenStart = (int) (totalChars * ((double) SUCCESS_START_TICK / DURATION_TICKS));
         int greenEnd = (int) (totalChars * ((double) SUCCESS_END_TICK / DURATION_TICKS));
         int markerPos = (int) (totalChars * ((double) progress / DURATION_TICKS));
-        markerPos = Math.min(totalChars - 1, markerPos); // Me aseguro que no se salga de los límites.
+        markerPos = Math.min(totalChars - 1, markerPos);
 
         for (int i = 0; i < totalChars; i++) {
             if (i == markerPos) {
                 bar.append(ChatColor.WHITE).append(ChatColor.BOLD).append("X");
             } else if (i >= greenStart && i <= greenEnd) {
-                bar.append(ChatColor.GREEN).append("|"); // Zona de éxito.
+                bar.append(ChatColor.GREEN).append("|");
             } else {
-                bar.append(ChatColor.RED).append("|"); // Zona de fallo.
+                bar.append(ChatColor.RED).append("|");
             }
         }
-        player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(bar.toString()));
+
+        // OPTIMIZACIÓN CLAVE: Solo envío el paquete si la barra ha cambiado visualmente.
+        String currentBar = bar.toString();
+        if (!currentBar.equals(lastProgressBar)) {
+            player.spigot().sendMessage(ChatMessageType.ACTION_BAR, new TextComponent(currentBar));
+            lastProgressBar = currentBar;
+        }
     }
 }
